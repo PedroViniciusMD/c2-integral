@@ -1,4 +1,5 @@
 import sympy as sp
+from tokenize import TokenError
 from sympy.parsing.sympy_parser import (
     convert_xor,
     implicit_multiplication_application,
@@ -47,5 +48,5 @@ def parse_expressao(expressao: str):
             transformations=transformacoes
         )
 
-    except (SyntaxError, TypeError, ValueError):
+    except (SyntaxError, TypeError, ValueError, TokenError):
         raise ValueError("Expressão matemática inválida.")
