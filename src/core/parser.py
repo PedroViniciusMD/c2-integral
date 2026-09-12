@@ -1,5 +1,6 @@
-import sympy as sp
 from tokenize import TokenError
+
+import sympy as sp
 from sympy.parsing.sympy_parser import (
     convert_xor,
     implicit_multiplication_application,
