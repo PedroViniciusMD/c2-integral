@@ -50,3 +50,22 @@ def parse_expressao(expressao: str):
 
     except (SyntaxError, TypeError, ValueError, TokenError):
         raise ValueError("Expressão matemática inválida.")
+    
+def parse_limite(limite: str):
+    limite = limite.strip().lower()
+
+    constantes_permitidas = {
+        "pi": sp.pi,
+        "e": sp.E,
+        "sqrt": sp.sqrt,
+    }
+
+    try:
+        return parse_expr(
+            limite,
+            local_dict=constantes_permitidas,
+            transformations=transformacoes
+        )
+
+    except (SyntaxError, TypeError, ValueError, TokenError) as erro:
+        raise ValueError("Limite inválido.") from erro
