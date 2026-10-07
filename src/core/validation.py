@@ -28,7 +28,12 @@ def validar_limite(limite):
             "O limite não pode conter variáveis."
         )
 
-    if limite.is_real is False:
+    if limite.is_finite is not True:
+        raise ValueError(
+            "O limite deve ser um número finito."
+        )
+
+    if limite.is_real is not True:
         raise ValueError(
             "O limite deve ser um número real."
         )

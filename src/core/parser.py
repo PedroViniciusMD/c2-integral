@@ -5,12 +5,14 @@ from sympy.parsing.sympy_parser import (
     convert_xor,
     implicit_multiplication_application,
     parse_expr,
+    rationalize,
     standard_transformations,
 )
 
 variaveis_permitidas = {
     "x": sp.Symbol("x"),
     "e": sp.E,
+    "pi": sp.pi,
     "sin": sp.sin,
     "cos": sp.cos,
     "tan": sp.tan,
@@ -19,7 +21,11 @@ variaveis_permitidas = {
     "sqrt": sp.sqrt,
 }
 
-transformacoes = standard_transformations + (convert_xor, implicit_multiplication_application)
+transformacoes = standard_transformations + (
+    rationalize,
+    convert_xor,
+    implicit_multiplication_application,
+)
 
 
 def normalizar_expressao(expressao: str) -> str:
@@ -53,12 +59,15 @@ def parse_expressao(expressao: str):
         raise ValueError("Expressão matemática inválida.")
     
 def parse_limite(limite: str):
-    limite = limite.strip().lower()
+    """Converte o texto de um limite em uma expressão SymPy."""
+    limite = normalizar_expressao(limite)
+
+    if not limite:
+        raise ValueError("Limite inválido: informe um valor.")
 
     constantes_permitidas = {
-        "pi": sp.pi,
-        "e": sp.E,
-        "sqrt": sp.sqrt,
+        nome: valor for nome, valor in variaveis_permitidas.items()
+        if nome != "x"
     }
 
     try:
