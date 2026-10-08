@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from src.ui.interface import ResultadoIntegral
+from src.ui.interface import (
+    ResultadoIntegral,
+    processar_integral_definida,
+    processar_integral_indefinida,
+)
 from src.ui.grafico import criar_figura, faixa_definida, validar_faixa
 
 
@@ -85,3 +89,127 @@ def test_faixa_definida_tem_margem_e_trata_limites_iguais():
     esquerda, direita = faixa_definida(igual)
     assert esquerda < 1 < direita
     assert np.isfinite([esquerda, direita]).all()
+
+
+def test_integral_definida_positiva_sombreia_somente_entre_limites():
+    resultado = processar_integral_definida("x^2", "0", "2")
+
+    figura = criar_figura(resultado)
+    regioes = figura.axes[0].collections
+    vertices = np.concatenate(
+        [caminho.vertices for caminho in regioes[0].get_paths()]
+    )
+
+    assert len(regioes) == 1
+    assert np.min(vertices[:, 0]) >= 0
+    assert np.max(vertices[:, 0]) <= 2
+    assert np.min(vertices[:, 1]) >= 0
+    assert np.max(vertices[:, 1]) > 0
+    assert sp.simplify(resultado.resultado - sp.Rational(8, 3)) == 0
+    figura.clear()
+
+
+def test_integral_definida_negativa_sombreia_abaixo_do_eixo():
+    resultado = processar_integral_definida("-x^2", "0", "2")
+
+    figura = criar_figura(resultado)
+    regioes = figura.axes[0].collections
+    vertices = np.concatenate(
+        [caminho.vertices for caminho in regioes[0].get_paths()]
+    )
+
+    assert len(regioes) == 1
+    assert np.min(vertices[:, 0]) >= 0
+    assert np.max(vertices[:, 0]) <= 2
+    assert np.max(vertices[:, 1]) <= 0
+    assert np.min(vertices[:, 1]) < 0
+    assert sp.simplify(resultado.resultado + sp.Rational(8, 3)) == 0
+    figura.clear()
+
+
+def test_cruzamento_do_eixo_distingue_contribuicoes():
+    resultado = processar_integral_definida("x", "-1", "1")
+
+    figura = criar_figura(resultado)
+    regioes = figura.axes[0].collections
+    vertices = [
+        np.concatenate([caminho.vertices for caminho in regiao.get_paths()])
+        for regiao in regioes
+    ]
+
+    assert len(regioes) == 2
+    assert not np.array_equal(
+        regioes[0].get_facecolor(), regioes[1].get_facecolor()
+    )
+    assert any(
+        np.min(pontos[:, 1]) >= 0 and np.max(pontos[:, 0]) > 0
+        for pontos in vertices
+    )
+    assert any(
+        np.max(pontos[:, 1]) <= 0 and np.min(pontos[:, 0]) < 0
+        for pontos in vertices
+    )
+    assert all(np.min(pontos[:, 0]) >= -1 for pontos in vertices)
+    assert all(np.max(pontos[:, 0]) <= 1 for pontos in vertices)
+    assert sp.simplify(resultado.resultado) == 0
+    figura.clear()
+
+
+def test_limites_invertidos_preservam_regiao_e_indicam_orientacao():
+    direto = processar_integral_definida("x^2", "0", "2")
+    invertido = processar_integral_definida("x^2", "2", "0")
+
+    figura_direta = criar_figura(direto)
+    figura_invertida = criar_figura(invertido)
+    caminho_direto = figura_direta.axes[0].collections[0].get_paths()[0]
+    caminho_invertido = figura_invertida.axes[0].collections[0].get_paths()[0]
+
+    assert np.array_equal(caminho_direto.vertices, caminho_invertido.vertices)
+    assert "direita para a esquerda" in figura_invertida.axes[0].get_title()
+    assert sp.simplify(direto.resultado + invertido.resultado) == 0
+    assert sp.simplify(invertido.resultado + sp.Rational(8, 3)) == 0
+    figura_direta.clear()
+    figura_invertida.clear()
+
+
+def test_limites_iguais_nao_criam_sombreado_artificial():
+    resultado = processar_integral_definida("x^2", "1", "1")
+
+    figura = criar_figura(resultado)
+
+    assert len(figura.axes[0].collections) == 0
+    assert sp.simplify(resultado.resultado) == 0
+    figura.clear()
+
+
+def test_integral_indefinida_nao_recebe_sombreado():
+    resultado = processar_integral_indefinida("x^2")
+
+    figura = criar_figura(resultado, validar_faixa("-10", "10"))
+
+    assert len(figura.axes[0].collections) == 0
+    assert figura.axes[0].get_title() == ""
+    figura.clear()
+
+
+def test_amostra_invalida_interrompe_sombreado():
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(
+        sp.sin(x) / x, 2 * sp.Si(1), sp.Integer(-1), sp.Integer(1)
+    )
+
+    figura = criar_figura(resultado)
+    regioes = figura.axes[0].collections
+    caminhos = regioes[0].get_paths()
+
+    assert len(regioes) == 1
+    assert len(caminhos) == 2
+    assert all(np.isfinite(caminho.vertices).all() for caminho in caminhos)
+    assert any(np.min(caminho.vertices[:, 0]) < 0 for caminho in caminhos)
+    assert any(np.max(caminho.vertices[:, 0]) > 0 for caminho in caminhos)
+    assert all(
+        np.max(caminho.vertices[:, 0]) <= 0
+        or np.min(caminho.vertices[:, 0]) >= 0
+        for caminho in caminhos
+    )
+    figura.clear()

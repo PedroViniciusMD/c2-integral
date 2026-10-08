@@ -21,14 +21,26 @@ def validar_faixa(esquerda_texto, direita_texto):
 
 def faixa_definida(resultado):
     """Enquadra os limites validados com uma margem horizontal."""
-    esquerda, direita = sorted((
-        float(resultado.limite_inferior),
-        float(resultado.limite_superior),
-    ))
+    esquerda, direita = _extremos_definidos(resultado)
     if not np.isfinite([esquerda, direita]).all():
         raise ValueError("Os limites não cabem na faixa do gráfico.")
     margem = (direita - esquerda) * 0.1 if esquerda != direita else 1.0
     return esquerda - margem, direita + margem
+
+
+def _extremos_definidos(resultado):
+    return sorted(
+        (float(resultado.limite_inferior), float(resultado.limite_superior))
+    )
+
+
+def _amostrar(funcao, amostras_x):
+    with np.errstate(all="ignore"):
+        valores = np.asarray(funcao(amostras_x), dtype=complex)
+        valores = np.broadcast_to(valores, amostras_x.shape)
+    return np.where(
+        np.isreal(valores) & np.isfinite(valores), valores.real, np.nan
+    )
 
 
 def criar_figura(resultado, faixa=None):
@@ -44,16 +56,32 @@ def criar_figura(resultado, faixa=None):
         eixo = figura.add_subplot(111)
         amostras_x = np.linspace(esquerda, direita, 401)
         funcao = sp.lambdify(sp.Symbol("x"), resultado.expressao, modules="numpy")
-        with np.errstate(all="ignore"):
-            valores = np.asarray(funcao(amostras_x), dtype=complex)
-            valores = np.broadcast_to(valores, amostras_x.shape)
-        amostras_y = np.where(
-            np.isreal(valores) & np.isfinite(valores), valores.real, np.nan
-        )
+        amostras_y = _amostrar(funcao, amostras_x)
         if not np.isfinite(amostras_y).any():
             raise ValueError("Não há valores reais finitos nessa faixa.")
         eixo.plot(amostras_x, amostras_y)
         eixo.set_xlim(esquerda, direita)
+        if resultado.limite_inferior is not None:
+            limite_esquerdo, limite_direito = _extremos_definidos(resultado)
+            if limite_esquerdo < limite_direito:
+                x_integracao = np.linspace(limite_esquerdo, limite_direito, 401)
+                y_integracao = _amostrar(funcao, x_integracao)
+                positivos = np.isfinite(y_integracao) & (y_integracao > 0)
+                negativos = np.isfinite(y_integracao) & (y_integracao < 0)
+                for mascara, cor in (
+                    (positivos, "tab:blue"),
+                    (negativos, "tab:orange"),
+                ):
+                    if mascara.any():
+                        eixo.fill_between(
+                            x_integracao, y_integracao, 0,
+                            where=mascara, interpolate=True,
+                            color=cor, alpha=0.35,
+                        )
+            if resultado.limite_inferior > resultado.limite_superior:
+                eixo.set_title(
+                    "Integração: direita para a esquerda", fontsize=10
+                )
         eixo.set_xlabel("x")
         eixo.set_ylabel("f(x)")
         eixo.grid(True)
