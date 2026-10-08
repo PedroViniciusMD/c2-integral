@@ -733,6 +733,27 @@ def test_falha_de_amostragem_nao_apaga_resultado(janela_sem_tela, monkeypatch):
     assert encontrar_nome(janela_sem_tela, "erro_faixa").opcoes["text"]
 
 
+def test_faixa_sem_dominio_real_preserva_resultado_e_copia(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "ln(x)")
+    botao(janela_sem_tela, "Calcular").invoke()
+    texto = resultado_textual(janela_sem_tela).get("1.0", "end-1c")
+
+    encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "-10")
+    encontrar_nome(janela_sem_tela, "faixa_direita").insert(0, "-1")
+    botao(janela_sem_tela, "Atualizar gráfico").invoke()
+    botao(janela_sem_tela, "Copiar").invoke()
+
+    assert encontrar_nome(janela_sem_tela, "erro_faixa").opcoes["text"]
+    assert resultado_textual(janela_sem_tela).get("1.0", "end-1c") == texto
+    assert janela_sem_tela.clipboard_get() == texto
+
+
 def test_falha_ao_desenhar_canvas_descarta_widget_e_figura(monkeypatch):
     from matplotlib.backends import backend_tkagg
     from matplotlib.figure import Figure

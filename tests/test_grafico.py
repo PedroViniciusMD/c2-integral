@@ -57,8 +57,8 @@ def test_amostras_complexas_nao_sao_convertidas_em_reais():
     valores_x = np.asarray(linha.get_xdata())
     valores_y = np.asarray(linha.get_ydata())
 
-    assert np.isnan(valores_y[valores_x < 0]).all()
-    assert np.isfinite(valores_y[valores_x > 0]).all()
+    assert np.min(valores_x) == 0
+    assert np.isfinite(valores_y).all()
     figura.clear()
 
 
@@ -68,15 +68,12 @@ def test_amostra_infinita_nao_e_desenhada_como_ponto_valido():
         ResultadoIntegral(1 / x, sp.log(sp.Abs(x))),
         validar_faixa("-1", "1"),
     )
-    linha = figura.axes[0].lines[0]
-    amostras_x = np.asarray(linha.get_xdata())
-    amostras_y = np.asarray(linha.get_ydata())
-    indice_zero = np.flatnonzero(amostras_x == 0)
+    trechos = figura.axes[0].lines
 
-    assert len(indice_zero) == 1
-    assert np.isnan(amostras_y[indice_zero[0]])
-    assert np.isfinite(amostras_y[indice_zero[0] - 1])
-    assert np.isfinite(amostras_y[indice_zero[0] + 1])
+    assert len(trechos) == 2
+    assert all(np.isfinite(linha.get_ydata()).all() for linha in trechos)
+    assert np.max(trechos[0].get_xdata()) < 0
+    assert np.min(trechos[1].get_xdata()) > 0
     figura.clear()
 
 
@@ -200,9 +197,10 @@ def test_amostra_invalida_interrompe_sombreado():
 
     figura = criar_figura(resultado)
     regioes = figura.axes[0].collections
-    caminhos = regioes[0].get_paths()
+    caminhos = [
+        caminho for regiao in regioes for caminho in regiao.get_paths()
+    ]
 
-    assert len(regioes) == 1
     assert len(caminhos) == 2
     assert all(np.isfinite(caminho.vertices).all() for caminho in caminhos)
     assert any(np.min(caminho.vertices[:, 0]) < 0 for caminho in caminhos)
@@ -210,6 +208,222 @@ def test_amostra_invalida_interrompe_sombreado():
     assert all(
         np.max(caminho.vertices[:, 0]) <= 0
         or np.min(caminho.vertices[:, 0]) >= 0
+        for caminho in caminhos
+    )
+    figura.clear()
+
+
+def test_polo_fora_da_malha_nao_liga_lados_da_curva():
+    x = sp.Symbol("x")
+    polo = sp.Rational(1, 3)
+    resultado = ResultadoIntegral(1 / (x - polo), sp.log(sp.Abs(x - polo)))
+
+    figura = criar_figura(resultado, validar_faixa("0", "1"))
+    trechos = [np.asarray(linha.get_xdata()) for linha in figura.axes[0].lines]
+
+    assert len(trechos) == 2
+    assert all(np.max(trecho) < float(polo) or np.min(trecho) > float(polo)
+               for trecho in trechos)
+    figura.clear()
+
+
+@pytest.mark.parametrize(
+    ("expressao", "esquerda", "direita", "polo"),
+    [
+        (lambda x: 1 / x, "-1", "1", 0),
+        (lambda x: 1 / x**2, "-1", "1", 0),
+        (lambda x: 1 / (x - 1), "0", "2", 1),
+    ],
+)
+def test_assintotas_conhecidas_separam_a_curva(
+    expressao, esquerda, direita, polo
+):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(expressao(x), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa(esquerda, direita))
+    trechos = [np.asarray(linha.get_xdata()) for linha in figura.axes[0].lines]
+
+    assert len(trechos) == 2
+    assert np.max(trechos[0]) < polo
+    assert np.min(trechos[1]) > polo
+    figura.clear()
+
+
+@pytest.mark.parametrize(
+    ("expressao", "inicio_valido"),
+    [(sp.log, False), (sp.sqrt, True)],
+)
+def test_dominio_parcial_nao_desenha_x_negativo(expressao, inicio_valido):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(expressao(x), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa("-2", "2"))
+    trechos = figura.axes[0].lines
+    amostras_x = np.asarray(trechos[0].get_xdata())
+
+    assert len(trechos) == 1
+    if inicio_valido:
+        assert np.min(amostras_x) == 0
+    else:
+        assert np.min(amostras_x) > 0
+    assert np.isfinite(trechos[0].get_ydata()).all()
+    figura.clear()
+
+
+@pytest.mark.parametrize(
+    "expressao", [sp.sin, lambda x: x**2, lambda x: sp.exp(100 * x)]
+)
+def test_funcoes_continuas_nao_recebem_cortes_artificiais(expressao):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(expressao(x), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa("-1", "1"))
+
+    assert len(figura.axes[0].lines) == 1
+    assert np.min(figura.axes[0].lines[0].get_xdata()) == -1
+    assert np.max(figura.axes[0].lines[0].get_xdata()) == 1
+    figura.clear()
+
+
+def test_singularidade_convergente_na_extremidade_sombreia_trecho_finito():
+    resultado = processar_integral_definida("1/raiz(x)", "0", "1")
+
+    figura = criar_figura(resultado)
+    eixo = figura.axes[0]
+    pontos_curva = np.asarray(eixo.lines[0].get_xdata())
+    caminhos = [caminho for regiao in eixo.collections
+                for caminho in regiao.get_paths()]
+
+    assert sp.simplify(resultado.resultado - 2) == 0
+    assert np.min(pontos_curva) > 0
+    assert len(caminhos) >= 1
+    assert all(np.min(caminho.vertices[:, 0]) > 0 for caminho in caminhos)
+    assert all(np.isfinite(caminho.vertices).all() for caminho in caminhos)
+    assert any("aproximado" in texto.get_text() for texto in eixo.texts)
+    figura.clear()
+
+
+@pytest.fixture
+def sem_analise_simbolica(monkeypatch):
+    from src.ui import grafico
+
+    def analise_indisponivel(*_argumentos):
+        raise NotImplementedError
+
+    monkeypatch.setattr(grafico, "continuous_domain", analise_indisponivel)
+    monkeypatch.setattr(grafico, "singularities", analise_indisponivel)
+
+
+@pytest.mark.parametrize("polo", [sp.Rational(1, 800), sp.Rational(1, 3)])
+def test_falha_da_analise_simbolica_usa_sondagem_numerica(
+    sem_analise_simbolica, polo
+):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(1 / (x - polo), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa("0", "1"))
+    trechos = [np.asarray(linha.get_xdata()) for linha in figura.axes[0].lines]
+
+    assert len(trechos) == 2
+    assert np.max(trechos[0]) < float(polo)
+    assert np.min(trechos[1]) > float(polo)
+    figura.clear()
+
+
+@pytest.mark.parametrize(
+    ("expressao", "esquerda", "direita", "polo"),
+    [
+        (lambda x: 1 / x, "-1", "1", 0),
+        (lambda x: 1 / x**2, "-1", "1", 0),
+        (lambda x: 1 / (x - 1), "0", "2", 1),
+    ],
+)
+def test_falha_simbolica_mantem_polos_amostrados_separados(
+    sem_analise_simbolica, expressao, esquerda, direita, polo
+):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(expressao(x), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa(esquerda, direita))
+    trechos = [np.asarray(linha.get_xdata()) for linha in figura.axes[0].lines]
+
+    assert len(trechos) == 2
+    assert np.max(trechos[0]) < polo
+    assert np.min(trechos[1]) > polo
+    figura.clear()
+
+
+def test_sondagem_conservadora_preserva_crescimento_continuo(
+    sem_analise_simbolica
+):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(
+        (x - sp.Rational(1, 3)) * sp.exp(100 * x), sp.Integer(0)
+    )
+
+    figura = criar_figura(resultado, validar_faixa("-1", "1"))
+
+    assert len(figura.axes[0].lines) == 1
+    figura.clear()
+
+
+def test_sondagem_nao_corta_transicao_continua_estreita(
+    sem_analise_simbolica
+):
+    x = sp.Symbol("x")
+    centro = sp.Rational(33337, 100000)
+    deslocamento = x - centro
+    expressao = deslocamento / (deslocamento**2 + sp.Rational(1, 10**18))
+    resultado = ResultadoIntegral(expressao, sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa("0", "1"))
+
+    assert len(figura.axes[0].lines) == 1
+    assert np.min(figura.axes[0].lines[0].get_xdata()) == 0
+    assert np.max(figura.axes[0].lines[0].get_xdata()) == 1
+    figura.clear()
+
+
+def test_sondagem_numerica_descarta_amostras_complexas(
+    sem_analise_simbolica
+):
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(sp.sqrt(x), sp.Integer(0))
+
+    figura = criar_figura(resultado, validar_faixa("-1", "1"))
+    trechos = figura.axes[0].lines
+
+    assert len(trechos) == 1
+    assert np.min(trechos[0].get_xdata()) == 0
+    assert np.isfinite(trechos[0].get_ydata()).all()
+    figura.clear()
+
+
+def test_singularidade_integravel_fora_da_malha_separa_curva_e_sombreado():
+    x = sp.Symbol("x")
+    polo = sp.Rational(1, 3)
+    expressao = 1 / sp.sqrt(sp.Abs(x - polo))
+    resultado = ResultadoIntegral(
+        expressao, 2 * (sp.sqrt(polo) + sp.sqrt(1 - polo)),
+        sp.Integer(0), sp.Integer(1),
+    )
+
+    figura = criar_figura(resultado)
+    eixo = figura.axes[0]
+    trechos_curva = [np.asarray(linha.get_xdata()) for linha in eixo.lines]
+    caminhos = [caminho for regiao in eixo.collections
+                for caminho in regiao.get_paths()]
+
+    assert len(trechos_curva) == 2
+    assert len(caminhos) == 2
+    assert all(
+        np.max(trecho) < float(polo) or np.min(trecho) > float(polo)
+        for trecho in trechos_curva
+    )
+    assert all(
+        np.max(caminho.vertices[:, 0]) < float(polo)
+        or np.min(caminho.vertices[:, 0]) > float(polo)
         for caminho in caminhos
     )
     figura.clear()

@@ -3,6 +3,7 @@
 import numpy as np
 import sympy as sp
 from matplotlib.figure import Figure
+from sympy.calculus.util import continuous_domain, singularities
 
 from src.core.parser import parse_limite
 from src.core.validation import validar_limite
@@ -43,6 +44,97 @@ def _amostrar(funcao, amostras_x):
     )
 
 
+def _intervalos_continuos(expressao, esquerda, direita):
+    x = sp.Symbol("x")
+    faixa = sp.Interval(esquerda, direita)
+    dominio = faixa
+    analise_completa = True
+    try:
+        dominio = continuous_domain(expressao, x, faixa)
+    except Exception:
+        analise_completa = False
+    try:
+        dominio -= singularities(expressao, x).intersect(faixa)
+    except Exception:
+        analise_completa = False
+    if dominio is sp.EmptySet:
+        return [], analise_completa
+    intervalos = dominio.args if isinstance(dominio, sp.Union) else (dominio,)
+    if not all(isinstance(intervalo, sp.Interval) for intervalo in intervalos):
+        return [faixa], False
+    return (
+        sorted(intervalos, key=lambda intervalo: float(intervalo.start)),
+        analise_completa,
+    )
+
+
+def _polo_suspeito(funcao, esquerda, direita, valor_esquerdo, valor_direito):
+    # Sem apoio simbólico, polos sem troca de sinal ou detalhes menores que a
+    # resolução desta sondagem ainda podem escapar ou parecer descontinuidades.
+    if not (valor_esquerdo and valor_direito):
+        return False
+    if np.signbit(valor_esquerdo) == np.signbit(valor_direito):
+        return False
+    referencia = max(abs(valor_esquerdo), abs(valor_direito))
+    pico_esquerdo = abs(valor_esquerdo)
+    pico_direito = abs(valor_direito)
+    for _ in range(30):
+        meio = esquerda + (direita - esquerda) / 2
+        if meio == esquerda or meio == direita:
+            return False
+        valor_meio = _amostrar(funcao, np.array([meio]))[0]
+        if not np.isfinite(valor_meio):
+            return True
+        if valor_meio == 0:
+            return False
+        if np.signbit(valor_meio) == np.signbit(valor_esquerdo):
+            esquerda, valor_esquerdo = meio, valor_meio
+            pico_esquerdo = max(pico_esquerdo, abs(valor_meio))
+        else:
+            direita, valor_direito = meio, valor_meio
+            pico_direito = max(pico_direito, abs(valor_meio))
+    # Uma transição contínua muito estreita também cresce antes de voltar a
+    # zero; cortar apenas quando os dois lados ainda crescem ao refinar.
+    return (
+        abs(valor_esquerdo) > 2 * referencia
+        and abs(valor_direito) > 2 * referencia
+        and abs(valor_esquerdo) >= 0.8 * pico_esquerdo
+        and abs(valor_direito) >= 0.8 * pico_direito
+    )
+
+
+def _trechos_numericos(funcao, pontos, sondar_polos=False):
+    if not len(pontos):
+        return []
+    valores = _amostrar(funcao, pontos)
+    meios = (pontos[:-1] + pontos[1:]) / 2
+    valores_meios = _amostrar(funcao, meios)
+    trechos = []
+    inicio = None
+    for indice, valor in enumerate(valores):
+        if not np.isfinite(valor):
+            if inicio is not None:
+                trechos.append((pontos[inicio:indice], valores[inicio:indice]))
+                inicio = None
+        elif inicio is None:
+            inicio = indice
+        elif (
+            not np.isfinite(valores_meios[indice - 1])
+            or (
+                sondar_polos
+                and _polo_suspeito(
+                    funcao, pontos[indice - 1], pontos[indice],
+                    valores[indice - 1], valor,
+                )
+            )
+        ):
+            trechos.append((pontos[inicio:indice], valores[inicio:indice]))
+            inicio = indice
+    if inicio is not None:
+        trechos.append((pontos[inicio:], valores[inicio:]))
+    return trechos
+
+
 def criar_figura(resultado, faixa=None):
     """Desenha a função original em uma figura sem dependência de Tkinter."""
     if faixa is None:
@@ -54,30 +146,72 @@ def criar_figura(resultado, faixa=None):
     figura = Figure(figsize=(5, 3), dpi=100)
     try:
         eixo = figura.add_subplot(111)
-        amostras_x = np.linspace(esquerda, direita, 401)
-        funcao = sp.lambdify(sp.Symbol("x"), resultado.expressao, modules="numpy")
-        amostras_y = _amostrar(funcao, amostras_x)
-        if not np.isfinite(amostras_y).any():
-            raise ValueError("Não há valores reais finitos nessa faixa.")
-        eixo.plot(amostras_x, amostras_y)
-        eixo.set_xlim(esquerda, direita)
+        intervalos, analise_completa = _intervalos_continuos(
+            resultado.expressao, esquerda, direita
+        )
+        malhas = [np.linspace(esquerda, direita, 401)]
+        limites = None
         if resultado.limite_inferior is not None:
-            limite_esquerdo, limite_direito = _extremos_definidos(resultado)
+            limites = _extremos_definidos(resultado)
+            if limites[0] < limites[1]:
+                malhas.append(np.linspace(*limites, 401))
+        for intervalo in intervalos:
+            malhas.append(np.linspace(
+                float(intervalo.start), float(intervalo.end), 401
+            ))
+        malha = np.unique(np.concatenate(malhas))
+        funcao = sp.lambdify(
+            sp.Symbol("x"), resultado.expressao, modules="numpy"
+        )
+        trechos = []
+        for intervalo in intervalos:
+            inicio, fim = float(intervalo.start), float(intervalo.end)
+            dentro = (
+                (malha > inicio if intervalo.left_open else malha >= inicio)
+                & (malha < fim if intervalo.right_open else malha <= fim)
+            )
+            trechos.extend(_trechos_numericos(
+                funcao, malha[dentro], sondar_polos=not analise_completa
+            ))
+        if not any(len(pontos) for pontos, _valores in trechos):
+            raise ValueError("Não há valores reais finitos nessa faixa.")
+        for pontos, valores in trechos:
+            eixo.plot(pontos, valores)
+        eixo.set_xlim(esquerda, direita)
+        if limites is not None:
+            limite_esquerdo, limite_direito = limites
             if limite_esquerdo < limite_direito:
-                x_integracao = np.linspace(limite_esquerdo, limite_direito, 401)
-                y_integracao = _amostrar(funcao, x_integracao)
-                positivos = np.isfinite(y_integracao) & (y_integracao > 0)
-                negativos = np.isfinite(y_integracao) & (y_integracao < 0)
-                for mascara, cor in (
-                    (positivos, "tab:blue"),
-                    (negativos, "tab:orange"),
+                partes_integracao = []
+                for pontos, valores in trechos:
+                    dentro = (pontos >= limite_esquerdo) & (
+                        pontos <= limite_direito
+                    )
+                    x_integracao = pontos[dentro]
+                    y_integracao = valores[dentro]
+                    if len(x_integracao) < 2:
+                        continue
+                    partes_integracao.append(x_integracao)
+                    for mascara, cor in (
+                        (y_integracao > 0, "tab:blue"),
+                        (y_integracao < 0, "tab:orange"),
+                    ):
+                        if mascara.any():
+                            eixo.fill_between(
+                                x_integracao, y_integracao, 0,
+                                where=mascara, interpolate=True,
+                                color=cor, alpha=0.35,
+                            )
+                if (
+                    len(partes_integracao) != 1
+                    or partes_integracao[0][0] > limite_esquerdo
+                    or partes_integracao[0][-1] < limite_direito
                 ):
-                    if mascara.any():
-                        eixo.fill_between(
-                            x_integracao, y_integracao, 0,
-                            where=mascara, interpolate=True,
-                            color=cor, alpha=0.35,
-                        )
+                    eixo.text(
+                        0.02, 0.02,
+                        "Sombreado aproximado: trechos finitos",
+                        transform=eixo.transAxes, fontsize=8,
+                        color="dimgray", va="bottom",
+                    )
             if resultado.limite_inferior > resultado.limite_superior:
                 eixo.set_title(
                     "Integração: direita para a esquerda", fontsize=10
