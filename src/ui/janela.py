@@ -8,6 +8,7 @@ from src.ui.interface import (
     processar_integral_definida,
     processar_integral_indefinida,
 )
+from src.ui.grafico import criar_figura, validar_faixa
 
 
 def texto_para_copia(resultado):
@@ -41,6 +42,27 @@ def _renderizar_resultado(area, formula):
     return widget
 
 
+def _incorporar_grafico(area, figura):
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+    recipiente = tk.Frame(area)
+    try:
+        canvas = FigureCanvasTkAgg(figura, master=recipiente)
+        widget = canvas.get_tk_widget()
+        canvas.draw()
+        widget.grid(row=0, column=0, sticky="nsew")
+        recipiente.columnconfigure(0, weight=1)
+        recipiente.rowconfigure(0, weight=1)
+        recipiente.grid(row=0, column=0, sticky="nsew")
+        return recipiente
+    except Exception:
+        try:
+            recipiente.destroy()
+        finally:
+            figura.clear()
+        raise
+
+
 def criar_janela(raiz):
     """Monta a interface inicial em uma raiz Tkinter existente."""
     raiz.title("Calculadora de integrais")
@@ -58,6 +80,8 @@ def criar_janela(raiz):
     expressao_texto = tk.StringVar(master=raiz)
     inferior_texto = tk.StringVar(master=raiz)
     superior_texto = tk.StringVar(master=raiz)
+    faixa_esquerda_texto = tk.StringVar(master=raiz, value="-10")
+    faixa_direita_texto = tk.StringVar(master=raiz, value="10")
 
     campo_expressao = tk.Frame(conteudo)
     campo_expressao.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -157,11 +181,78 @@ def criar_janela(raiz):
     grafico = tk.Frame(conteudo, relief="groove", borderwidth=1)
     grafico.grid(row=5, column=0, sticky="nsew", pady=(16, 0))
     grafico.columnconfigure(0, weight=1)
-    grafico.rowconfigure(1, weight=1)
+    grafico.rowconfigure(3, weight=1)
     tk.Label(grafico, text="Gráfico").grid(row=0, column=0, sticky="w")
+
+    campos_faixa = tk.Frame(grafico)
+    campos_faixa.grid(row=1, column=0, sticky="ew")
+    tk.Label(campos_faixa, text="Faixa de x").grid(row=0, column=0, sticky="w")
+    tk.Entry(
+        campos_faixa, name="faixa_esquerda", width=12,
+        textvariable=faixa_esquerda_texto,
+    ).grid(row=0, column=1, padx=(8, 4))
+    tk.Label(campos_faixa, text="até").grid(row=0, column=2)
+    tk.Entry(
+        campos_faixa, name="faixa_direita", width=12,
+        textvariable=faixa_direita_texto,
+    ).grid(row=0, column=3, padx=(4, 8))
+    erro_faixa = tk.Label(
+        grafico, name="erro_faixa", text="", fg="red"
+    )
+    erro_faixa.grid(row=2, column=0, sticky="w")
+    area_grafico = tk.Frame(grafico)
+    area_grafico.grid(row=3, column=0, sticky="nsew")
+    area_grafico.columnconfigure(0, weight=1)
+    area_grafico.rowconfigure(0, weight=1)
 
     texto_copia = None
     visualizacao = None
+    resultado_atual = None
+    figura_grafico = None
+    widget_grafico = None
+
+    def limpar_grafico():
+        nonlocal figura_grafico, widget_grafico
+        if widget_grafico is not None:
+            try:
+                widget_grafico.destroy()
+            finally:
+                widget_grafico = None
+                if figura_grafico is not None:
+                    figura_grafico.clear()
+                    figura_grafico = None
+        elif figura_grafico is not None:
+            figura_grafico.clear()
+            figura_grafico = None
+        erro_faixa.config(text="")
+
+    def atualizar_grafico():
+        nonlocal figura_grafico, widget_grafico
+        limpar_grafico()
+        if resultado_atual is None:
+            return
+        try:
+            faixa = None
+            if tipo_integral.get() == "indefinida":
+                faixa = validar_faixa(
+                    faixa_esquerda_texto.get(), faixa_direita_texto.get()
+                )
+            figura = criar_figura(resultado_atual, faixa)
+            try:
+                widget = _incorporar_grafico(area_grafico, figura)
+            except Exception:
+                figura.clear()
+                raise
+            figura_grafico = figura
+            widget_grafico = widget
+        except (ValueError, TypeError) as erro:
+            erro_faixa.config(text=f"Não foi possível mostrar o gráfico: {erro}")
+        except Exception:
+            erro_faixa.config(text="Não foi possível mostrar o gráfico.")
+
+    tk.Button(
+        campos_faixa, text="Atualizar gráfico", command=atualizar_grafico
+    ).grid(row=0, column=4)
 
     def atualizar_resultado_textual(texto):
         resultado_textual.config(state="normal")
@@ -178,8 +269,10 @@ def criar_janela(raiz):
             barra_resultado.grid_remove()
 
     def limpar_saida(*_argumentos):
-        nonlocal texto_copia, visualizacao
+        nonlocal texto_copia, visualizacao, resultado_atual
         texto_copia = None
+        resultado_atual = None
+        limpar_grafico()
         if visualizacao is not None:
             visualizacao.destroy()
             visualizacao = None
@@ -191,7 +284,7 @@ def criar_janela(raiz):
         botao_copiar.config(state="disabled")
 
     def calcular():
-        nonlocal texto_copia, visualizacao
+        nonlocal texto_copia, visualizacao, resultado_atual
         limpar_saida()
         try:
             if tipo_integral.get() == "definida":
@@ -222,12 +315,14 @@ def criar_janela(raiz):
 
         atualizar_resultado_textual(texto_copia)
         botao_copiar.config(state="normal")
+        resultado_atual = resultado
         try:
             visualizacao = _renderizar_resultado(
                 area_resultado, mathtext_resultado(resultado)
             )
         except Exception:
-            return
+            pass
+        atualizar_grafico()
 
     def copiar():
         if texto_copia is None:
@@ -240,6 +335,10 @@ def criar_janela(raiz):
 
     def alternar_tipo():
         atualizar_campos_limites()
+        if tipo_integral.get() == "definida":
+            campos_faixa.grid_remove()
+        else:
+            campos_faixa.grid()
         limpar_saida()
 
     tk.Radiobutton(
@@ -272,6 +371,13 @@ def criar_janela(raiz):
 
     inferior_texto.trace_add("write", invalidar_limite)
     superior_texto.trace_add("write", invalidar_limite)
+
+    def invalidar_faixa(*_argumentos):
+        if tipo_integral.get() == "indefinida":
+            limpar_grafico()
+
+    faixa_esquerda_texto.trace_add("write", invalidar_faixa)
+    faixa_direita_texto.trace_add("write", invalidar_faixa)
 
 
 def abrir_janela():

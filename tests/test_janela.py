@@ -80,6 +80,9 @@ class WidgetFalso:
 
     def destroy(self):
         self.visivel = False
+        self.destruido = True
+        for filho in self.filhos:
+            filho.destroy()
 
     def pack(self, **_opcoes):
         self.visivel = True
@@ -536,3 +539,251 @@ def test_editar_entrada_limpa_mensagem_de_erro(janela_sem_tela):
     entrada.insert(0, "x^2")
 
     assert erro_do_campo(janela_sem_tela, "Expressão").opcoes["text"] == ""
+
+
+def test_faixa_indefinida_pode_ser_atualizada_sem_recalcular(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    graficos = []
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico",
+        lambda _area, figura: graficos.append(figura) or WidgetFalso(),
+    )
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+
+    assert graficos[-1].axes[0].get_xlim() == (-10, 10)
+    encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "-2")
+    encontrar_nome(janela_sem_tela, "faixa_direita").insert(0, "2")
+    assert texto_visivel(janela_sem_tela, "x**3/3 + C")
+    botao(janela_sem_tela, "Atualizar gráfico").invoke()
+
+    assert graficos[-1].axes[0].get_xlim() == (-2, 2)
+    assert len(graficos) == 2
+
+
+def test_faixa_invalida_preserva_resultado_e_copia(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+    encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "3")
+    encontrar_nome(janela_sem_tela, "faixa_direita").insert(0, "2")
+    botao(janela_sem_tela, "Atualizar gráfico").invoke()
+    botao(janela_sem_tela, "Copiar").invoke()
+
+    assert encontrar_nome(janela_sem_tela, "erro_faixa").opcoes["text"]
+    assert texto_visivel(janela_sem_tela, "x**3/3 + C")
+    assert janela_sem_tela.clipboard_get() == "x**3/3 + C"
+
+
+def test_atualizar_faixa_nao_repete_calculo_da_integral(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    original = janela.processar_integral_indefinida
+    chamadas = []
+
+    def processar(texto):
+        chamadas.append(texto)
+        return original(texto)
+
+    monkeypatch.setattr(janela, "processar_integral_indefinida", processar)
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+    encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "-2")
+    botao(janela_sem_tela, "Atualizar gráfico").invoke()
+
+    assert chamadas == ["x^2"]
+
+
+def test_grafico_definido_usa_limites_e_oculta_faixa_editavel(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    figuras = []
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico",
+        lambda _area, figura: figuras.append(figura) or WidgetFalso(),
+    )
+    encontrar_texto(janela_sem_tela, "Definida").invoke()
+    assert not visivel(encontrar_nome(janela_sem_tela, "faixa_esquerda"))
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    entrada_do_campo(janela_sem_tela, "Limite inferior").insert(0, "2")
+    entrada_do_campo(janela_sem_tela, "Limite superior").insert(0, "0")
+    botao(janela_sem_tela, "Calcular").invoke()
+
+    assert figuras[-1].axes[0].get_xlim() == (-0.2, 2.2)
+    assert texto_visivel(janela_sem_tela, "-8/3")
+
+
+def test_falha_grafica_preserva_resultado_mathtext_e_copia(
+    janela_sem_tela, monkeypatch
+):
+    from matplotlib.figure import Figure
+    from src.ui import janela
+
+    formulas = []
+    figura = Figure()
+    figura.add_subplot(111)
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado",
+        lambda _area, formula: formulas.append(formula) or WidgetFalso(),
+    )
+    monkeypatch.setattr(janela, "criar_figura", lambda *_: figura)
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("canvas falhou")),
+    )
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+    botao(janela_sem_tela, "Copiar").invoke()
+
+    assert formulas == [r"$\frac{x^{3}}{3} + C$"]
+    assert texto_visivel(janela_sem_tela, "x**3/3 + C")
+    assert janela_sem_tela.clipboard_get() == "x**3/3 + C"
+    assert encontrar_nome(janela_sem_tela, "erro_faixa").opcoes["text"]
+    assert not figura.axes
+
+
+def test_editar_entrada_descarta_grafico_anterior(janela_sem_tela, monkeypatch):
+    from src.ui import janela
+
+    criados = []
+
+    def incorporar(_area, figura):
+        widget = WidgetFalso()
+        criados.append((figura, widget))
+        return widget
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", incorporar)
+    entrada = entrada_do_campo(janela_sem_tela, "Expressão")
+    entrada.insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+    figura, widget = criados[-1]
+
+    entrada.insert(0, "x")
+
+    assert widget.destruido
+    assert not figura.axes
+
+
+def test_recalculos_consecutivos_descartam_canvases_e_figuras_anteriores(
+    janela_sem_tela, monkeypatch
+):
+    from src.ui import janela
+
+    graficos = []
+
+    def incorporar(_area, figura):
+        canvas = WidgetFalso()
+        graficos.append((figura, canvas))
+        return canvas
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", incorporar)
+    entrada = entrada_do_campo(janela_sem_tela, "Expressão")
+    entrada.insert(0, "x^2")
+
+    for quantidade in range(1, 5):
+        botao(janela_sem_tela, "Calcular").invoke()
+        assert len(graficos) == quantidade
+        assert all(
+            getattr(canvas, "destruido", False) and not figura.axes
+            for figura, canvas in graficos[:-1]
+        )
+        figura_atual, canvas_atual = graficos[-1]
+        assert not getattr(canvas_atual, "destruido", False)
+        assert figura_atual.axes
+
+    entrada.insert(0, "x")
+    assert all(
+        canvas.destruido and not figura.axes
+        for figura, canvas in graficos
+    )
+
+
+def test_falha_de_amostragem_nao_apaga_resultado(janela_sem_tela, monkeypatch):
+    from src.ui import janela
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(
+        janela, "criar_figura",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("amostragem falhou")),
+    )
+    entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
+    botao(janela_sem_tela, "Calcular").invoke()
+    botao(janela_sem_tela, "Copiar").invoke()
+
+    assert texto_visivel(janela_sem_tela, "x**3/3 + C")
+    assert janela_sem_tela.clipboard_get() == "x**3/3 + C"
+    assert encontrar_nome(janela_sem_tela, "erro_faixa").opcoes["text"]
+
+
+def test_falha_ao_desenhar_canvas_descarta_widget_e_figura(monkeypatch):
+    from matplotlib.backends import backend_tkagg
+    from matplotlib.figure import Figure
+    from src.ui.janela import _incorporar_grafico
+
+    widgets = []
+
+    class CanvasFalho:
+        def __init__(self, _figura, master):
+            self.widget = WidgetFalso(master)
+            widgets.append(self.widget)
+
+        def get_tk_widget(self):
+            return self.widget
+
+        def draw(self):
+            raise RuntimeError("falha ao desenhar")
+
+    from src.ui import janela
+
+    monkeypatch.setattr(backend_tkagg, "FigureCanvasTkAgg", CanvasFalho)
+    monkeypatch.setattr(janela.tk, "Frame", WidgetFalso)
+    figura = Figure()
+    figura.add_subplot(111)
+
+    with pytest.raises(RuntimeError, match="falha ao desenhar"):
+        _incorporar_grafico(WidgetFalso(), figura)
+
+    assert widgets[0].destruido
+    assert not figura.axes
+
+
+def test_falha_ao_criar_canvas_descarta_filho_parcial(monkeypatch):
+    from matplotlib.backends import backend_tkagg
+    from matplotlib.figure import Figure
+    from src.ui import janela
+
+    filhos = []
+
+    class CanvasFalho:
+        def __init__(self, _figura, master):
+            filhos.append(WidgetFalso(master))
+            raise RuntimeError("falha ao criar canvas")
+
+    monkeypatch.setattr(backend_tkagg, "FigureCanvasTkAgg", CanvasFalho)
+    monkeypatch.setattr(janela.tk, "Frame", WidgetFalso)
+    figura = Figure()
+    figura.add_subplot(111)
+
+    with pytest.raises(RuntimeError, match="falha ao criar canvas"):
+        janela._incorporar_grafico(WidgetFalso(), figura)
+
+    assert filhos[0].destruido
+    assert not figura.axes
