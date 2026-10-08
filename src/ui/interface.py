@@ -1,6 +1,7 @@
 from src.core.integral import calcular_integral_definida as integrar
 from src.core.parser import parse_expressao, parse_limite
 from src.core.validation import (
+    validar_dominio_real,
     validar_expressao,
     validar_limites,
     validar_ponto_comum,
@@ -18,5 +19,6 @@ def calcular_integral_definida(
     validar_expressao(expressao)
     validar_limites(limite_inferior, limite_superior)
     validar_ponto_comum(expressao, limite_inferior, limite_superior)
+    validar_dominio_real(expressao, limite_inferior, limite_superior)
 
     return integrar(expressao, limite_inferior, limite_superior)
