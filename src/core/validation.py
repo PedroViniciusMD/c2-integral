@@ -41,3 +41,13 @@ def validar_limite(limite):
 def validar_limites(limite_inferior, limite_superior):
     validar_limite(limite_inferior)
     validar_limite(limite_superior)
+
+
+def validar_ponto_comum(expressao, limite_inferior, limite_superior):
+    """Exige que a expressão esteja definida em limites iguais."""
+    if limite_inferior != limite_superior:
+        return
+
+    valor = expressao.subs(sp.Symbol("x"), limite_inferior)
+    if valor.is_real is not True or valor.is_finite is not True:
+        raise ValueError("A expressão é singular no limite informado.")
