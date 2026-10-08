@@ -1,5 +1,8 @@
 """Janela principal da calculadora de integrais."""
 
+from collections import deque
+from queue import Empty, Queue
+from threading import Condition, Thread
 import tkinter as tk
 
 import sympy as sp
@@ -8,7 +11,115 @@ from src.ui.interface import (
     processar_integral_definida,
     processar_integral_indefinida,
 )
-from src.ui.grafico import criar_figura, validar_faixa
+from src.ui.grafico import (
+    montar_figura,
+    preparar_dados_grafico,
+    validar_faixa,
+)
+
+
+class _Despachante:
+    def __init__(self):
+        self.respostas = Queue()
+        self._condicao = Condition()
+        self._versoes = {"calculo": 0, "grafico": 0}
+        self._tarefas = deque()
+        self._ativos = 0
+        self._encerrado = False
+        for _ in range(2):
+            Thread(target=self._trabalhar, daemon=True).start()
+
+    def _descartar_pendentes(self):
+        self._tarefas = deque(
+            tarefa for tarefa in self._tarefas
+            if tarefa[1] == self._versoes[tarefa[0]]
+        )
+
+    def invalidar(self, *tipos):
+        with self._condicao:
+            for tipo in tipos:
+                self._versoes[tipo] += 1
+            self._descartar_pendentes()
+
+    def enviar(self, tipo, operacao, argumentos, invalidar=()):
+        with self._condicao:
+            if self._encerrado:
+                return None
+            for outro_tipo in invalidar:
+                self._versoes[outro_tipo] += 1
+            self._versoes[tipo] += 1
+            self._descartar_pendentes()
+            identificador = self._versoes[tipo]
+            self._tarefas.append((tipo, identificador, operacao, argumentos))
+            self._condicao.notify()
+            return identificador
+
+    def atual(self, tipo, identificador):
+        with self._condicao:
+            return (
+                not self._encerrado
+                and identificador == self._versoes[tipo]
+            )
+
+    def tem_trabalho(self):
+        with self._condicao:
+            return bool(
+                self._tarefas or self._ativos or not self.respostas.empty()
+            )
+
+    def fechar(self):
+        with self._condicao:
+            self._encerrado = True
+            self._tarefas.clear()
+            self._condicao.notify_all()
+
+    def _trabalhar(self):
+        while True:
+            with self._condicao:
+                while not self._tarefas and not self._encerrado:
+                    self._condicao.wait()
+                if self._encerrado:
+                    return
+                tipo, identificador, operacao, argumentos = (
+                    self._tarefas.popleft()
+                )
+                if identificador != self._versoes[tipo]:
+                    continue
+                self._ativos += 1
+            try:
+                try:
+                    resposta = operacao(*argumentos)
+                    erro = None
+                except (ValueError, TypeError) as excecao:
+                    resposta = None
+                    erro = (str(excecao), getattr(excecao, "campo_entrada", None))
+                except Exception:
+                    resposta = None
+                    erro = (None, None)
+                self.respostas.put((tipo, identificador, resposta, erro))
+            finally:
+                with self._condicao:
+                    self._ativos -= 1
+
+
+def _calcular_tarefa(tipo, expressao, inferior, superior):
+    if tipo == "definida":
+        resultado = processar_integral_definida(expressao, inferior, superior)
+    else:
+        resultado = processar_integral_indefinida(expressao)
+    texto = texto_para_copia(resultado)
+    try:
+        formula = mathtext_resultado(resultado)
+    except Exception:
+        formula = None
+    return resultado, texto, formula
+
+
+def _preparar_grafico_tarefa(resultado, tipo, esquerda, direita):
+    faixa = None
+    if tipo == "indefinida":
+        faixa = validar_faixa(esquerda, direita)
+    return preparar_dados_grafico(resultado, faixa)
 
 
 def texto_para_copia(resultado):
@@ -30,23 +141,33 @@ def _renderizar_resultado(area, formula):
     from matplotlib.figure import Figure
 
     figura = Figure(figsize=(4.5, 1), dpi=100)
-    figura.text(0.02, 0.5, formula, ha="left", va="center", fontsize=18)
-    canvas = FigureCanvasTkAgg(figura, master=area)
-    widget = canvas.get_tk_widget()
+    recipiente = None
     try:
+        recipiente = tk.Frame(area)
+        figura.text(0.02, 0.5, formula, ha="left", va="center", fontsize=18)
+        canvas = FigureCanvasTkAgg(figura, master=recipiente)
+        widget = canvas.get_tk_widget()
         canvas.draw()
-        widget.grid(row=1, column=0, sticky="ew")
+        widget.grid(row=0, column=0, sticky="ew")
+        recipiente.columnconfigure(0, weight=1)
+        recipiente.grid(row=1, column=0, sticky="ew")
+        recipiente._figura_resultado = figura
+        return recipiente
     except Exception:
-        widget.destroy()
+        try:
+            if recipiente is not None:
+                recipiente.destroy()
+        finally:
+            figura.clear()
         raise
-    return widget
 
 
 def _incorporar_grafico(area, figura):
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-    recipiente = tk.Frame(area)
+    recipiente = None
     try:
+        recipiente = tk.Frame(area)
         canvas = FigureCanvasTkAgg(figura, master=recipiente)
         widget = canvas.get_tk_widget()
         canvas.draw()
@@ -57,7 +178,8 @@ def _incorporar_grafico(area, figura):
         return recipiente
     except Exception:
         try:
-            recipiente.destroy()
+            if recipiente is not None:
+                recipiente.destroy()
         finally:
             figura.clear()
         raise
@@ -147,6 +269,8 @@ def criar_janela(raiz):
 
     acoes = tk.Frame(conteudo)
     acoes.grid(row=3, column=0, sticky="w", pady=(12, 0))
+    estado_calculo = tk.Label(acoes, name="estado_calculo", text="")
+    estado_calculo.grid(row=0, column=2, sticky="w", padx=(12, 0))
 
     saida = tk.Frame(conteudo)
     saida.grid(row=4, column=0, sticky="ew", pady=(16, 0))
@@ -210,9 +334,31 @@ def criar_janela(raiz):
     resultado_atual = None
     figura_grafico = None
     widget_grafico = None
+    calculo_pendente = False
+    grafico_pendente = False
+    encerrada = False
+    agendamento = None
+    despachante = _Despachante()
+
+    def atualizar_estado():
+        texto = "Calculando..." if calculo_pendente or grafico_pendente else ""
+        estado_calculo.config(text=texto)
+
+    def agendar_respostas():
+        nonlocal agendamento
+        if not encerrada and agendamento is None:
+            agendamento = raiz.after(20, processar_respostas)
+
+    def parar_consulta_se_ocioso():
+        nonlocal agendamento
+        if agendamento is not None and not despachante.tem_trabalho():
+            raiz.after_cancel(agendamento)
+            agendamento = None
 
     def limpar_grafico():
-        nonlocal figura_grafico, widget_grafico
+        nonlocal figura_grafico, widget_grafico, grafico_pendente
+        despachante.invalidar("grafico")
+        grafico_pendente = False
         if widget_grafico is not None:
             try:
                 widget_grafico.destroy()
@@ -225,30 +371,22 @@ def criar_janela(raiz):
             figura_grafico.clear()
             figura_grafico = None
         erro_faixa.config(text="")
+        atualizar_estado()
+        parar_consulta_se_ocioso()
 
     def atualizar_grafico():
-        nonlocal figura_grafico, widget_grafico
+        nonlocal grafico_pendente
         limpar_grafico()
         if resultado_atual is None:
             return
-        try:
-            faixa = None
-            if tipo_integral.get() == "indefinida":
-                faixa = validar_faixa(
-                    faixa_esquerda_texto.get(), faixa_direita_texto.get()
-                )
-            figura = criar_figura(resultado_atual, faixa)
-            try:
-                widget = _incorporar_grafico(area_grafico, figura)
-            except Exception:
-                figura.clear()
-                raise
-            figura_grafico = figura
-            widget_grafico = widget
-        except (ValueError, TypeError) as erro:
-            erro_faixa.config(text=f"Não foi possível mostrar o gráfico: {erro}")
-        except Exception:
-            erro_faixa.config(text="Não foi possível mostrar o gráfico.")
+        entradas = (
+            resultado_atual, tipo_integral.get(),
+            faixa_esquerda_texto.get(), faixa_direita_texto.get(),
+        )
+        despachante.enviar("grafico", _preparar_grafico_tarefa, entradas)
+        grafico_pendente = True
+        atualizar_estado()
+        agendar_respostas()
 
     tk.Button(
         campos_faixa, text="Atualizar gráfico", command=atualizar_grafico
@@ -269,13 +407,22 @@ def criar_janela(raiz):
             barra_resultado.grid_remove()
 
     def limpar_saida(*_argumentos):
-        nonlocal texto_copia, visualizacao, resultado_atual
+        nonlocal texto_copia, visualizacao, resultado_atual, calculo_pendente
+        despachante.invalidar("calculo")
+        calculo_pendente = False
         texto_copia = None
         resultado_atual = None
         limpar_grafico()
         if visualizacao is not None:
-            visualizacao.destroy()
-            visualizacao = None
+            try:
+                visualizacao.destroy()
+            finally:
+                figura_resultado = getattr(
+                    visualizacao, "_figura_resultado", None
+                )
+                if figura_resultado is not None:
+                    figura_resultado.clear()
+                visualizacao = None
         atualizar_resultado_textual("")
         for rotulo in (
             erro_expressao, erro_inferior, erro_superior, mensagem_geral
@@ -284,45 +431,86 @@ def criar_janela(raiz):
         botao_copiar.config(state="disabled")
 
     def calcular():
-        nonlocal texto_copia, visualizacao, resultado_atual
+        nonlocal calculo_pendente
         limpar_saida()
-        try:
-            if tipo_integral.get() == "definida":
-                resultado = processar_integral_definida(
-                    expressao_texto.get(),
-                    inferior_texto.get(),
-                    superior_texto.get(),
-                )
-            else:
-                resultado = processar_integral_indefinida(
-                    expressao_texto.get()
-                )
-            texto_copia = texto_para_copia(resultado)
-        except (ValueError, TypeError) as erro:
-            rotulos_de_erro = {
-                "expressao": erro_expressao,
-                "limite_inferior": erro_inferior,
-                "limite_superior": erro_superior,
-            }
-            rotulo = rotulos_de_erro.get(
-                getattr(erro, "campo_entrada", None), mensagem_geral
-            )
-            rotulo.config(text=str(erro))
-            return
-        except Exception:
-            mensagem_geral.config(text="Não foi possível calcular a integral.")
-            return
+        entradas = (
+            tipo_integral.get(), expressao_texto.get(),
+            inferior_texto.get(), superior_texto.get(),
+        )
+        despachante.enviar(
+            "calculo", _calcular_tarefa, entradas, invalidar=("grafico",)
+        )
+        calculo_pendente = True
+        atualizar_estado()
+        agendar_respostas()
 
-        atualizar_resultado_textual(texto_copia)
-        botao_copiar.config(state="normal")
-        resultado_atual = resultado
-        try:
-            visualizacao = _renderizar_resultado(
-                area_resultado, mathtext_resultado(resultado)
-            )
-        except Exception:
-            pass
-        atualizar_grafico()
+    def processar_respostas():
+        nonlocal agendamento, calculo_pendente, grafico_pendente
+        nonlocal texto_copia, visualizacao, resultado_atual
+        nonlocal figura_grafico, widget_grafico
+        agendamento = None
+        if encerrada:
+            return
+        while True:
+            try:
+                tipo, identificador, resposta, erro = (
+                    despachante.respostas.get_nowait()
+                )
+            except Empty:
+                break
+            if not despachante.atual(tipo, identificador):
+                continue
+            if tipo == "calculo":
+                calculo_pendente = False
+                if erro is not None:
+                    mensagem, campo = erro
+                    rotulos = {
+                        "expressao": erro_expressao,
+                        "limite_inferior": erro_inferior,
+                        "limite_superior": erro_superior,
+                    }
+                    rotulo = rotulos.get(campo, mensagem_geral)
+                    rotulo.config(
+                        text=mensagem
+                        or "Não foi possível calcular a integral."
+                    )
+                else:
+                    resultado_atual, texto_copia, formula = resposta
+                    atualizar_resultado_textual(texto_copia)
+                    botao_copiar.config(state="normal")
+                    if formula is not None:
+                        try:
+                            visualizacao = _renderizar_resultado(
+                                area_resultado, formula
+                            )
+                        except Exception:
+                            pass
+                    atualizar_grafico()
+            else:
+                grafico_pendente = False
+                if erro is not None:
+                    mensagem, _campo = erro
+                    texto = "Não foi possível mostrar o gráfico"
+                    erro_faixa.config(
+                        text=f"{texto}: {mensagem}" if mensagem
+                        else f"{texto}."
+                    )
+                else:
+                    figura = None
+                    try:
+                        figura = montar_figura(resposta)
+                        widget = _incorporar_grafico(area_grafico, figura)
+                        figura_grafico = figura
+                        widget_grafico = widget
+                    except Exception:
+                        if figura is not None:
+                            figura.clear()
+                        erro_faixa.config(
+                            text="Não foi possível mostrar o gráfico."
+                        )
+            atualizar_estado()
+        if despachante.tem_trabalho():
+            agendar_respostas()
 
     def copiar():
         if texto_copia is None:
@@ -340,6 +528,16 @@ def criar_janela(raiz):
         else:
             campos_faixa.grid()
         limpar_saida()
+
+    def fechar():
+        nonlocal encerrada, agendamento
+        encerrada = True
+        despachante.fechar()
+        if agendamento is not None:
+            raiz.after_cancel(agendamento)
+            agendamento = None
+        limpar_saida()
+        raiz.destroy()
 
     tk.Radiobutton(
         selecao,
@@ -378,6 +576,7 @@ def criar_janela(raiz):
 
     faixa_esquerda_texto.trace_add("write", invalidar_faixa)
     faixa_direita_texto.trace_add("write", invalidar_faixa)
+    raiz.protocol("WM_DELETE_WINDOW", fechar)
 
 
 def abrir_janela():

@@ -7,7 +7,37 @@ from src.ui.interface import (
     processar_integral_definida,
     processar_integral_indefinida,
 )
-from src.ui.grafico import criar_figura, faixa_definida, validar_faixa
+from src.ui.grafico import (
+    criar_figura,
+    faixa_definida,
+    montar_figura,
+    preparar_dados_grafico,
+    validar_faixa,
+)
+
+
+def test_preparacao_numerica_nao_cria_figura(monkeypatch):
+    from src.ui import grafico
+
+    x = sp.Symbol("x")
+    resultado = ResultadoIntegral(x**2, x**3 / 3)
+    with monkeypatch.context() as alteracoes:
+        alteracoes.setattr(
+            grafico, "Figure",
+            lambda *_argumentos, **_opcoes: (_ for _ in ()).throw(
+                AssertionError("A preparação criou uma figura")
+            ),
+        )
+        dados = preparar_dados_grafico(resultado, (-2, 2))
+
+    figura = montar_figura(dados)
+
+    assert figura.axes[0].get_xlim() == (-2, 2)
+    assert np.allclose(
+        figura.axes[0].lines[0].get_ydata(),
+        figura.axes[0].lines[0].get_xdata() ** 2,
+    )
+    figura.clear()
 
 
 def test_grafico_indefinido_usa_funcao_original_e_faixa_inicial():

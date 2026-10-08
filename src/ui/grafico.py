@@ -1,5 +1,7 @@
 """Prepara a visualização numérica da função de uma integral."""
 
+from dataclasses import dataclass
+
 import numpy as np
 import sympy as sp
 from matplotlib.figure import Figure
@@ -7,6 +9,17 @@ from sympy.calculus.util import continuous_domain, singularities
 
 from src.core.parser import parse_limite
 from src.core.validation import validar_limite
+
+
+@dataclass(frozen=True)
+class DadosGrafico:
+    """Transporta amostras prontas para desenhar na thread da interface."""
+
+    esquerda: float
+    direita: float
+    trechos: tuple
+    limites: tuple | None
+    orientacao_invertida: bool
 
 
 def validar_faixa(esquerda_texto, direita_texto):
@@ -135,49 +148,60 @@ def _trechos_numericos(funcao, pontos, sondar_polos=False):
     return trechos
 
 
-def criar_figura(resultado, faixa=None):
-    """Desenha a função original em uma figura sem dependência de Tkinter."""
+def preparar_dados_grafico(resultado, faixa=None):
+    """Amostra a função original sem criar recursos Matplotlib."""
     if faixa is None:
         faixa = faixa_definida(resultado)
     esquerda, direita = map(float, faixa)
     if not np.isfinite([esquerda, direita]).all() or esquerda >= direita:
         raise ValueError("A faixa do gráfico deve ser finita e crescente.")
 
+    intervalos, analise_completa = _intervalos_continuos(
+        resultado.expressao, esquerda, direita
+    )
+    malhas = [np.linspace(esquerda, direita, 401)]
+    limites = None
+    if resultado.limite_inferior is not None:
+        limites = _extremos_definidos(resultado)
+        if limites[0] < limites[1]:
+            malhas.append(np.linspace(*limites, 401))
+    for intervalo in intervalos:
+        malhas.append(np.linspace(
+            float(intervalo.start), float(intervalo.end), 401
+        ))
+    malha = np.unique(np.concatenate(malhas))
+    funcao = sp.lambdify(
+        sp.Symbol("x"), resultado.expressao, modules="numpy"
+    )
+    trechos = []
+    for intervalo in intervalos:
+        inicio, fim = float(intervalo.start), float(intervalo.end)
+        dentro = (
+            (malha > inicio if intervalo.left_open else malha >= inicio)
+            & (malha < fim if intervalo.right_open else malha <= fim)
+        )
+        trechos.extend(_trechos_numericos(
+            funcao, malha[dentro], sondar_polos=not analise_completa
+        ))
+    if not any(len(pontos) for pontos, _valores in trechos):
+        raise ValueError("Não há valores reais finitos nessa faixa.")
+    return DadosGrafico(
+        esquerda, direita, tuple(trechos), limites,
+        resultado.limite_inferior is not None
+        and resultado.limite_inferior > resultado.limite_superior,
+    )
+
+
+def montar_figura(dados):
+    """Monta a figura Matplotlib a partir de amostras já preparadas."""
     figura = Figure(figsize=(5, 3), dpi=100)
     try:
         eixo = figura.add_subplot(111)
-        intervalos, analise_completa = _intervalos_continuos(
-            resultado.expressao, esquerda, direita
-        )
-        malhas = [np.linspace(esquerda, direita, 401)]
-        limites = None
-        if resultado.limite_inferior is not None:
-            limites = _extremos_definidos(resultado)
-            if limites[0] < limites[1]:
-                malhas.append(np.linspace(*limites, 401))
-        for intervalo in intervalos:
-            malhas.append(np.linspace(
-                float(intervalo.start), float(intervalo.end), 401
-            ))
-        malha = np.unique(np.concatenate(malhas))
-        funcao = sp.lambdify(
-            sp.Symbol("x"), resultado.expressao, modules="numpy"
-        )
-        trechos = []
-        for intervalo in intervalos:
-            inicio, fim = float(intervalo.start), float(intervalo.end)
-            dentro = (
-                (malha > inicio if intervalo.left_open else malha >= inicio)
-                & (malha < fim if intervalo.right_open else malha <= fim)
-            )
-            trechos.extend(_trechos_numericos(
-                funcao, malha[dentro], sondar_polos=not analise_completa
-            ))
-        if not any(len(pontos) for pontos, _valores in trechos):
-            raise ValueError("Não há valores reais finitos nessa faixa.")
+        trechos = dados.trechos
         for pontos, valores in trechos:
             eixo.plot(pontos, valores)
-        eixo.set_xlim(esquerda, direita)
+        eixo.set_xlim(dados.esquerda, dados.direita)
+        limites = dados.limites
         if limites is not None:
             limite_esquerdo, limite_direito = limites
             if limite_esquerdo < limite_direito:
@@ -212,7 +236,7 @@ def criar_figura(resultado, faixa=None):
                         transform=eixo.transAxes, fontsize=8,
                         color="dimgray", va="bottom",
                     )
-            if resultado.limite_inferior > resultado.limite_superior:
+            if dados.orientacao_invertida:
                 eixo.set_title(
                     "Integração: direita para a esquerda", fontsize=10
                 )
@@ -224,3 +248,8 @@ def criar_figura(resultado, faixa=None):
     except Exception:
         figura.clear()
         raise
+
+
+def criar_figura(resultado, faixa=None):
+    """Desenha a função original sem depender de Tkinter."""
+    return montar_figura(preparar_dados_grafico(resultado, faixa))

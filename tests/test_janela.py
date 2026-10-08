@@ -2,6 +2,8 @@ import os
 import runpy
 import subprocess
 import sys
+from queue import Queue
+from threading import Event, get_ident
 from types import SimpleNamespace
 
 import pytest
@@ -9,9 +11,13 @@ import sympy as sp
 
 
 @pytest.mark.parametrize("modulo", ["main", "src.ui.janela"])
-def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(modulo):
+def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(
+    modulo, tmp_path
+):
     ambiente = os.environ.copy()
     ambiente.pop("DISPLAY", None)
+    ambiente["MPLCONFIGDIR"] = str(tmp_path / "matplotlib")
+    ambiente["XDG_CACHE_HOME"] = str(tmp_path / "cache")
 
     processo = subprocess.run(
         [sys.executable, "-c", f"import {modulo}"],
@@ -23,7 +29,10 @@ def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(modulo):
 
     assert processo.returncode == 0
     assert processo.stdout == ""
-    assert processo.stderr == ""
+    aviso_fontes = (
+        "Matplotlib is building the font cache; this may take a moment.\n"
+    )
+    assert processo.stderr.replace(aviso_fontes, "") == ""
 
 
 def test_main_preserva_calculo_python_indefinido():
@@ -107,6 +116,30 @@ class WidgetFalso:
 
 
 class RaizFalsa(WidgetFalso):
+    def __init__(self, *argumentos, **opcoes):
+        super().__init__(*argumentos, **opcoes)
+        self.agendados = []
+        self.protocolos = {}
+
+    def after(self, _atraso, funcao):
+        identificador = object()
+        self.agendados.append((identificador, funcao))
+        return identificador
+
+    def after_cancel(self, identificador):
+        self.agendados = [
+            agendado for agendado in self.agendados
+            if agendado[0] is not identificador
+        ]
+
+    def executar_agendado(self):
+        if self.agendados:
+            _identificador, funcao = self.agendados.pop(0)
+            funcao()
+
+    def protocol(self, nome, funcao):
+        self.protocolos[nome] = funcao
+
     def clipboard_clear(self):
         self.area_transferencia = ""
 
@@ -167,6 +200,10 @@ class BotaoFalso(WidgetFalso):
         if self.opcoes.get("state") == "disabled":
             return
         self.opcoes["command"]()
+        raiz = self
+        while raiz.parent is not None:
+            raiz = raiz.parent
+        raiz.executar_agendado()
 
 
 class VariavelFalsa:
@@ -184,6 +221,64 @@ class VariavelFalsa:
 
     def trace_add(self, _modo, observador):
         self.observadores.append(observador)
+
+
+class DespachanteFalso:
+    automatico = True
+    instancia = None
+
+    def __init__(self):
+        self.respostas = Queue()
+        self.versoes = {"calculo": 0, "grafico": 0}
+        self.tarefas = []
+        self.encerrado = False
+        type(self).instancia = self
+
+    def invalidar(self, *tipos):
+        for tipo in tipos:
+            self.versoes[tipo] += 1
+        self.tarefas = [
+            tarefa for tarefa in self.tarefas
+            if tarefa[1] == self.versoes[tarefa[0]]
+        ]
+
+    def enviar(self, tipo, operacao, argumentos, invalidar=()):
+        self.invalidar(*invalidar, tipo)
+        identificador = self.versoes[tipo]
+        self.tarefas.append((tipo, identificador, operacao, argumentos))
+        if self.automatico:
+            self.executar_proxima()
+        return identificador
+
+    def executar_proxima(self):
+        self.concluir(self.tarefas.pop(0))
+
+    def concluir(self, tarefa):
+        tipo, identificador, operacao, argumentos = tarefa
+        try:
+            resposta = operacao(*argumentos)
+            erro = None
+        except (ValueError, TypeError) as excecao:
+            resposta = None
+            erro = (str(excecao), getattr(excecao, "campo_entrada", None))
+        except Exception:
+            resposta = None
+            erro = (None, None)
+        self.respostas.put((tipo, identificador, resposta, erro))
+
+    def atual(self, tipo, identificador):
+        return not self.encerrado and self.versoes[tipo] == identificador
+
+    def tem_trabalho(self):
+        return bool(self.tarefas or not self.respostas.empty())
+
+    def fechar(self):
+        self.encerrado = True
+        self.tarefas.clear()
+
+
+class DespachanteControlado(DespachanteFalso):
+    automatico = False
 
 
 def descendentes(widget):
@@ -214,6 +309,10 @@ def encontrar_nome(raiz, nome):
 
 def resultado_textual(raiz):
     return encontrar_nome(raiz, "resultado_textual")
+
+
+def estado_calculo(raiz):
+    return encontrar_nome(raiz, "estado_calculo").opcoes["text"]
 
 
 def entrada_do_campo(raiz, titulo):
@@ -255,8 +354,7 @@ def texto_visivel(raiz, texto):
     )
 
 
-@pytest.fixture
-def janela_sem_tela(monkeypatch):
+def montar_janela_falsa(monkeypatch, classe_despachante):
     from src.ui import janela
 
     tk_falso = SimpleNamespace(
@@ -271,10 +369,22 @@ def janela_sem_tela(monkeypatch):
         StringVar=VariavelFalsa,
     )
     monkeypatch.setattr(janela, "tk", tk_falso)
+    monkeypatch.setattr(janela, "_Despachante", classe_despachante)
     raiz = RaizFalsa()
     raiz.visivel = True
     janela.criar_janela(raiz)
+    raiz.despachante = classe_despachante.instancia
     return raiz
+
+
+@pytest.fixture
+def janela_sem_tela(monkeypatch):
+    return montar_janela_falsa(monkeypatch, DespachanteFalso)
+
+
+@pytest.fixture
+def janela_controlada(monkeypatch):
+    return montar_janela_falsa(monkeypatch, DespachanteControlado)
 
 
 @pytest.fixture
@@ -570,8 +680,12 @@ def test_faixa_invalida_preserva_resultado_e_copia(
 ):
     from src.ui import janela
 
-    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
-    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
+    )
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
     botao(janela_sem_tela, "Calcular").invoke()
     encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "3")
@@ -642,7 +756,7 @@ def test_falha_grafica_preserva_resultado_mathtext_e_copia(
         janela, "_renderizar_resultado",
         lambda _area, formula: formulas.append(formula) or WidgetFalso(),
     )
-    monkeypatch.setattr(janela, "criar_figura", lambda *_: figura)
+    monkeypatch.setattr(janela, "montar_figura", lambda *_: figura)
     monkeypatch.setattr(
         janela, "_incorporar_grafico",
         lambda *_: (_ for _ in ()).throw(RuntimeError("canvas falhou")),
@@ -721,7 +835,7 @@ def test_falha_de_amostragem_nao_apaga_resultado(janela_sem_tela, monkeypatch):
 
     monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "criar_figura",
+        janela, "preparar_dados_grafico",
         lambda *_: (_ for _ in ()).throw(RuntimeError("amostragem falhou")),
     )
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
@@ -808,3 +922,510 @@ def test_falha_ao_criar_canvas_descarta_filho_parcial(monkeypatch):
 
     assert filhos[0].destruido
     assert not figura.axes
+
+
+def test_falha_ao_desenhar_mathtext_descarta_figura_e_widget(monkeypatch):
+    from matplotlib import figure as modulo_figura
+    from matplotlib.backends import backend_tkagg
+    from src.ui import janela
+
+    figuras = []
+    recipientes = []
+    figura_original = modulo_figura.Figure
+
+    def criar_figura(*argumentos, **opcoes):
+        figura = figura_original(*argumentos, **opcoes)
+        figuras.append(figura)
+        return figura
+
+    class CanvasFalho:
+        def __init__(self, _figura, master):
+            self.widget = WidgetFalso(master)
+            recipientes.append(master)
+
+        def get_tk_widget(self):
+            return self.widget
+
+        def draw(self):
+            raise RuntimeError("falha do MathText")
+
+    monkeypatch.setattr(modulo_figura, "Figure", criar_figura)
+    monkeypatch.setattr(backend_tkagg, "FigureCanvasTkAgg", CanvasFalho)
+    monkeypatch.setattr(janela.tk, "Frame", WidgetFalso)
+
+    with pytest.raises(RuntimeError, match="falha do MathText"):
+        janela._renderizar_resultado(WidgetFalso(), "$x$")
+
+    assert recipientes[0].destruido
+    assert not figuras[0].texts
+
+
+def test_falha_ao_criar_recipiente_descarta_figuras(monkeypatch):
+    from matplotlib import figure as modulo_figura
+    from src.ui import janela
+
+    figuras = []
+    figura_original = modulo_figura.Figure
+
+    class FiguraRastreada(figura_original):
+        def __init__(self, *argumentos, **opcoes):
+            super().__init__(*argumentos, **opcoes)
+            self.descartada = False
+            figuras.append(self)
+
+        def clear(self, *argumentos, **opcoes):
+            super().clear(*argumentos, **opcoes)
+            self.descartada = True
+
+    def falhar_ao_criar_recipiente(*_argumentos, **_opcoes):
+        raise RuntimeError("falha do contêiner")
+
+    monkeypatch.setattr(modulo_figura, "Figure", FiguraRastreada)
+    monkeypatch.setattr(janela.tk, "Frame", falhar_ao_criar_recipiente)
+
+    with pytest.raises(RuntimeError, match="falha do contêiner"):
+        janela._renderizar_resultado(WidgetFalso(), "$x$")
+    figura_grafico = figura_original()
+    figura_grafico.add_subplot(111)
+    with pytest.raises(RuntimeError, match="falha do contêiner"):
+        janela._incorporar_grafico(WidgetFalso(), figura_grafico)
+
+    assert figuras[0].descartada
+    assert not figura_grafico.axes
+
+
+def test_calculo_pendente_mostra_progresso_e_entrega_resultado(
+    janela_controlada, monkeypatch
+):
+    from src.ui import janela
+
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
+    )
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+
+    botao(janela_controlada, "Calcular").invoke()
+
+    assert estado_calculo(janela_controlada) == "Calculando..."
+    assert resultado_textual(janela_controlada).get("1.0", "end-1c") == ""
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+
+    assert texto_visivel(janela_controlada, "x**3/3 + C")
+    assert estado_calculo(janela_controlada)
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+
+    assert estado_calculo(janela_controlada) == ""
+    botao(janela_controlada, "Copiar").invoke()
+    assert janela_controlada.clipboard_get() == "x**3/3 + C"
+
+
+def test_consulta_da_fila_ativa_somente_enquanto_ha_trabalho(
+    janela_controlada
+):
+    assert janela_controlada.agendados == []
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    assert janela_controlada.agendados == []
+
+    botao(janela_controlada, "Calcular").invoke()
+    assert len(janela_controlada.agendados) == 1
+    assert estado_calculo(janela_controlada) == "Calculando..."
+
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    assert len(janela_controlada.agendados) == 1
+
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    assert janela_controlada.agendados == []
+    assert estado_calculo(janela_controlada) == ""
+
+    botao(janela_controlada, "Calcular").invoke()
+    assert len(janela_controlada.agendados) == 1
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    assert janela_controlada.agendados == []
+
+
+def test_fechar_com_consulta_ativa_cancela_agendamento(janela_controlada):
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    assert len(janela_controlada.agendados) == 1
+
+    janela_controlada.protocolos["WM_DELETE_WINDOW"]()
+
+    assert janela_controlada.agendados == []
+    assert janela_controlada.destruido
+
+
+def test_edicao_cancela_consulta_de_tarefa_descartada(janela_controlada):
+    entrada = entrada_do_campo(janela_controlada, "Expressão")
+    entrada.insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    assert len(janela_controlada.agendados) == 1
+
+    entrada.insert(0, "x")
+
+    assert janela_controlada.agendados == []
+    assert estado_calculo(janela_controlada) == ""
+
+    botao(janela_controlada, "Calcular").invoke()
+    assert len(janela_controlada.agendados) == 1
+
+
+def test_edicao_descarta_resposta_de_calculo_em_andamento(janela_controlada):
+    entrada = entrada_do_campo(janela_controlada, "Expressão")
+    entrada.insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    tarefa_antiga = janela_controlada.despachante.tarefas.pop(0)
+
+    entrada.insert(0, "x")
+    janela_controlada.despachante.concluir(tarefa_antiga)
+    janela_controlada.executar_agendado()
+
+    assert estado_calculo(janela_controlada) == ""
+    assert resultado_textual(janela_controlada).get("1.0", "end-1c") == ""
+    assert botao(janela_controlada, "Copiar").opcoes["state"] == "disabled"
+
+
+def test_erro_assincrono_preserva_entrada_e_remove_progresso(
+    janela_controlada
+):
+    entrada = entrada_do_campo(janela_controlada, "Expressão")
+    entrada.insert(0, "x +")
+    botao(janela_controlada, "Calcular").invoke()
+    assert estado_calculo(janela_controlada)
+
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+
+    assert entrada.get() == "x +"
+    assert erro_do_campo(janela_controlada, "Expressão").opcoes["text"]
+    assert estado_calculo(janela_controlada) == ""
+
+
+def test_troca_de_modo_invalida_calculo_pendente(janela_controlada):
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    tarefa_antiga = janela_controlada.despachante.tarefas.pop(0)
+    encontrar_texto(janela_controlada, "Definida").invoke()
+
+    janela_controlada.despachante.concluir(tarefa_antiga)
+    janela_controlada.executar_agendado()
+
+    assert resultado_textual(janela_controlada).get("1.0", "end-1c") == ""
+    assert estado_calculo(janela_controlada) == ""
+    assert visivel(entrada_do_campo(janela_controlada, "Limite inferior"))
+
+
+def test_requisicao_mais_recente_vence_conclusao_fora_de_ordem(
+    janela_controlada, monkeypatch
+):
+    from src.ui import janela
+
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
+    )
+    entrada = entrada_do_campo(janela_controlada, "Expressão")
+    entrada.insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    antiga = janela_controlada.despachante.tarefas.pop(0)
+    entrada.insert(0, "x")
+    botao(janela_controlada, "Calcular").invoke()
+
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.concluir(antiga)
+    janela_controlada.executar_agendado()
+
+    assert texto_visivel(janela_controlada, "x**2/2 + C")
+    assert not texto_visivel(janela_controlada, "x**3/3 + C")
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    assert estado_calculo(janela_controlada) == ""
+
+
+def test_faixa_descarta_grafico_antigo_sem_recalcular(
+    janela_controlada, monkeypatch
+):
+    from src.ui import janela
+
+    figuras = []
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico",
+        lambda _area, figura: figuras.append(figura) or WidgetFalso(),
+    )
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    resultado_original = resultado_textual(janela_controlada).get(
+        "1.0", "end-1c"
+    )
+
+    encontrar_nome(janela_controlada, "faixa_esquerda").insert(0, "-2")
+    botao(janela_controlada, "Atualizar gráfico").invoke()
+    antiga = janela_controlada.despachante.tarefas.pop(0)
+    encontrar_nome(janela_controlada, "faixa_direita").insert(0, "2")
+    botao(janela_controlada, "Atualizar gráfico").invoke()
+    janela_controlada.despachante.concluir(antiga)
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+
+    assert len(figuras) == 2
+    assert figuras[-1].axes[0].get_xlim() == (-2, 2)
+    assert resultado_textual(janela_controlada).get(
+        "1.0", "end-1c"
+    ) == resultado_original
+    assert estado_calculo(janela_controlada) == ""
+
+
+def test_fechar_durante_calculo_descarta_saida_e_recursos(
+    janela_controlada, monkeypatch
+):
+    from matplotlib.figure import Figure
+    from src.ui import janela
+
+    formulas = []
+    graficos = []
+
+    def renderizar(*_argumentos):
+        widget = WidgetFalso()
+        figura = Figure()
+        figura.add_subplot(111)
+        widget._figura_resultado = figura
+        formulas.append((widget, figura))
+        return widget
+
+    def incorporar(_area, figura):
+        widget = WidgetFalso()
+        graficos.append((widget, figura))
+        return widget
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", renderizar)
+    monkeypatch.setattr(janela, "_incorporar_grafico", incorporar)
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    botao(janela_controlada, "Calcular").invoke()
+    tarefa_em_andamento = janela_controlada.despachante.tarefas.pop(0)
+
+    janela_controlada.protocolos["WM_DELETE_WINDOW"]()
+    janela_controlada.despachante.concluir(tarefa_em_andamento)
+
+    assert janela_controlada.destruido
+    assert janela_controlada.agendados == []
+    assert janela_controlada.despachante.encerrado
+    assert all(widget.destruido and not figura.axes
+               for widget, figura in formulas + graficos)
+
+
+def test_despachante_descarta_trabalhos_pendentes_obsoletos():
+    from src.ui.janela import _Despachante
+
+    iniciados = Queue()
+    liberar = Event()
+    despachante = _Despachante()
+
+    def tarefa(identificador):
+        iniciados.put(identificador)
+        if identificador in (1, 2):
+            assert liberar.wait(timeout=10)
+        return identificador
+
+    try:
+        despachante.enviar("calculo", tarefa, (1,))
+        assert iniciados.get(timeout=10) == 1
+        despachante.enviar("calculo", tarefa, (2,))
+        assert iniciados.get(timeout=10) == 2
+        for identificador in (3, 4, 5):
+            despachante.enviar("calculo", tarefa, (identificador,))
+        liberar.set()
+
+        assert iniciados.get(timeout=10) == 5
+        respostas = [despachante.respostas.get(timeout=10) for _ in range(3)]
+        assert all(erro is None for _tipo, _id, _resposta, erro in respostas)
+        assert despachante.atual("calculo", 5)
+        assert iniciados.empty()
+    finally:
+        liberar.set()
+        despachante.fechar()
+
+
+@pytest.mark.parametrize("tipo", ["calculo", "grafico"])
+def test_despachante_invalida_resposta_de_trabalho_em_execucao(tipo):
+    from src.ui.janela import _Despachante
+
+    iniciou = Event()
+    liberar = Event()
+    despachante = _Despachante()
+    assert not despachante.tem_trabalho()
+
+    def tarefa():
+        iniciou.set()
+        assert liberar.wait(timeout=10)
+        return "resultado antigo"
+
+    try:
+        identificador = despachante.enviar(tipo, tarefa, ())
+        assert iniciou.wait(timeout=10)
+        assert despachante.tem_trabalho()
+        despachante.invalidar(tipo)
+        liberar.set()
+
+        resposta = despachante.respostas.get(timeout=10)
+        assert resposta == (tipo, identificador, "resultado antigo", None)
+        assert not despachante.atual(tipo, identificador)
+    finally:
+        liberar.set()
+        despachante.fechar()
+
+
+def test_worker_real_nao_acessa_tk_e_eventos_continuam(monkeypatch):
+    from src.ui import janela
+
+    identificador_principal = get_ident()
+    iniciou = Event()
+    liberar = Event()
+    processar = janela.processar_integral_indefinida
+    obter_variavel = VariavelFalsa.get
+    configurar_widget = WidgetFalso.config
+
+    def obter_na_thread_principal(variavel):
+        assert get_ident() == identificador_principal
+        return obter_variavel(variavel)
+
+    def configurar_na_thread_principal(widget, **opcoes):
+        assert get_ident() == identificador_principal
+        return configurar_widget(widget, **opcoes)
+
+    def calculo_controlado(expressao):
+        assert get_ident() != identificador_principal
+        iniciou.set()
+        assert liberar.wait(timeout=10)
+        return processar(expressao)
+
+    monkeypatch.setattr(VariavelFalsa, "get", obter_na_thread_principal)
+    monkeypatch.setattr(WidgetFalso, "config", configurar_na_thread_principal)
+    monkeypatch.setattr(
+        janela, "processar_integral_indefinida", calculo_controlado
+    )
+
+    class DespachanteRealRastreado(janela._Despachante):
+        instancia = None
+
+        def __init__(self):
+            super().__init__()
+            type(self).instancia = self
+
+    raiz = montar_janela_falsa(monkeypatch, DespachanteRealRastreado)
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
+    )
+    try:
+        entrada_do_campo(raiz, "Expressão").insert(0, "x^2")
+        botao(raiz, "Calcular").invoke()
+        assert iniciou.wait(timeout=10)
+        raiz.executar_agendado()
+        assert encontrar_nome(raiz, "estado_calculo").opcoes["text"] == (
+            "Calculando..."
+        )
+        liberar.set()
+        resposta = raiz.despachante.respostas.get(timeout=10)
+        raiz.despachante.respostas.put(resposta)
+        raiz.executar_agendado()
+        assert texto_visivel(raiz, "x**3/3 + C")
+    finally:
+        liberar.set()
+        raiz.protocolos["WM_DELETE_WINDOW"]()
+
+
+def test_falha_grafica_assincrona_preserva_resultado_e_copia(
+    janela_controlada, monkeypatch
+):
+    from src.ui import janela
+
+    monkeypatch.setattr(
+        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
+    )
+    monkeypatch.setattr(
+        janela, "preparar_dados_grafico",
+        lambda *_: (_ for _ in ()).throw(
+            ValueError("faixa sem domínio real")
+        ),
+    )
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    botao(janela_controlada, "Copiar").invoke()
+
+    assert resultado_textual(janela_controlada).get(
+        "1.0", "end-1c"
+    ) == "x**3/3 + C"
+    assert janela_controlada.clipboard_get() == "x**3/3 + C"
+    assert "faixa sem domínio real" in encontrar_nome(
+        janela_controlada, "erro_faixa"
+    ).opcoes["text"]
+    assert estado_calculo(janela_controlada) == ""
+
+
+def test_fechar_descarta_figuras_ainda_visiveis(
+    janela_controlada, monkeypatch
+):
+    from matplotlib.figure import Figure
+    from src.ui import janela
+
+    recursos = []
+
+    def renderizar(*_argumentos):
+        widget = WidgetFalso()
+        figura = Figure()
+        figura.add_subplot(111)
+        widget._figura_resultado = figura
+        recursos.append((widget, figura))
+        return widget
+
+    def incorporar(_area, figura):
+        widget = WidgetFalso()
+        recursos.append((widget, figura))
+        return widget
+
+    monkeypatch.setattr(janela, "_renderizar_resultado", renderizar)
+    monkeypatch.setattr(janela, "_incorporar_grafico", incorporar)
+    entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
+    botao(janela_controlada, "Calcular").invoke()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    janela_controlada.despachante.executar_proxima()
+    janela_controlada.executar_agendado()
+    assert all(figura.axes for _widget, figura in recursos)
+
+    janela_controlada.protocolos["WM_DELETE_WINDOW"]()
+
+    assert all(widget.destruido and not figura.axes
+               for widget, figura in recursos)
+    assert janela_controlada.agendados == []
