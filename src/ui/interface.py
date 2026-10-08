@@ -13,7 +13,7 @@ from src.core.parser import parse_expressao, parse_limite
 from src.core.validation import (
     validar_dominio_real,
     validar_expressao,
-    validar_limites,
+    validar_limite,
     validar_ponto_comum,
 )
 
@@ -32,16 +32,31 @@ class ResultadoIntegral:
             raise ValueError("Os limites devem ser informados em conjunto.")
 
 
+def _executar_com_campo(operacao, valor, campo):
+    try:
+        return operacao(valor)
+    except (ValueError, TypeError) as erro:
+        erro.campo_entrada = campo
+        raise
+
+
 def processar_integral_definida(
     expressao_texto, limite_inferior_texto, limite_superior_texto
 ):
     """Calcula e devolve a integral definida com operandos validados."""
-    expressao = parse_expressao(expressao_texto)
-    limite_inferior = parse_limite(limite_inferior_texto)
-    limite_superior = parse_limite(limite_superior_texto)
+    expressao = _executar_com_campo(
+        parse_expressao, expressao_texto, "expressao"
+    )
+    limite_inferior = _executar_com_campo(
+        parse_limite, limite_inferior_texto, "limite_inferior"
+    )
+    limite_superior = _executar_com_campo(
+        parse_limite, limite_superior_texto, "limite_superior"
+    )
 
-    validar_expressao(expressao)
-    validar_limites(limite_inferior, limite_superior)
+    _executar_com_campo(validar_expressao, expressao, "expressao")
+    _executar_com_campo(validar_limite, limite_inferior, "limite_inferior")
+    _executar_com_campo(validar_limite, limite_superior, "limite_superior")
     validar_ponto_comum(expressao, limite_inferior, limite_superior)
     validar_dominio_real(expressao, limite_inferior, limite_superior)
 
@@ -62,8 +77,10 @@ def calcular_integral_definida(
 
 def processar_integral_indefinida(expressao_texto):
     """Calcula e devolve a integral indefinida com a expressão validada."""
-    expressao = parse_expressao(expressao_texto)
-    validar_expressao(expressao)
+    expressao = _executar_com_campo(
+        parse_expressao, expressao_texto, "expressao"
+    )
+    _executar_com_campo(validar_expressao, expressao, "expressao")
 
     resultado = integrar_indefinida(expressao)
     if resultado.has(sp.Integral):

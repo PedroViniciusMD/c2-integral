@@ -87,3 +87,46 @@ def test_resultado_estruturado_exige_o_par_completo_de_limites():
             sp.Symbol("x") ** 2 / 2,
             sp.Integer(0),
         )
+
+
+@pytest.mark.parametrize(
+    ("expressao", "inferior", "superior", "campo", "mensagem"),
+    [
+        ("x^^2", "0", "1", "expressao", "Expressão matemática inválida."),
+        ("x", "1+", "2", "limite_inferior", "Limite inválido."),
+        ("x", "0", "1+", "limite_superior", "Limite inválido."),
+        (
+            "x", "1/0", "2", "limite_inferior",
+            "O limite deve ser um número finito.",
+        ),
+        (
+            "x", "0", "1/0", "limite_superior",
+            "O limite deve ser um número finito.",
+        ),
+    ],
+)
+def test_erro_de_entrada_indica_campo_sem_mudar_tipo_ou_mensagem(
+    expressao, inferior, superior, campo, mensagem
+):
+    with pytest.raises(ValueError) as erro:
+        processar_integral_definida(expressao, inferior, superior)
+
+    assert erro.value.campo_entrada == campo
+    assert type(erro.value) is ValueError
+    assert str(erro.value) == mensagem
+
+
+def test_erro_geral_da_integral_nao_aponta_campo():
+    with pytest.raises(ValueError, match="domínio real") as erro:
+        processar_integral_definida("raiz(x)", "-1", "1")
+
+    assert not hasattr(erro.value, "campo_entrada")
+
+
+def test_erro_de_expressao_indefinida_indica_campo():
+    with pytest.raises(
+        ValueError, match="Expressão matemática inválida"
+    ) as erro:
+        processar_integral_indefinida("x^^2")
+
+    assert erro.value.campo_entrada == "expressao"
