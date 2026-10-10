@@ -96,11 +96,17 @@ def test_resultado_estruturado_exige_o_par_completo_de_limites():
         ("x", "1+", "2", "limite_inferior", "Limite inválido."),
         ("x", "0", "1+", "limite_superior", "Limite inválido."),
         (
-            "x", "1/0", "2", "limite_inferior",
+            "x",
+            "1/0",
+            "2",
+            "limite_inferior",
             "O limite deve ser um número finito.",
         ),
         (
-            "x", "0", "1/0", "limite_superior",
+            "x",
+            "0",
+            "1/0",
+            "limite_superior",
             "O limite deve ser um número finito.",
         ),
     ],
@@ -124,9 +130,7 @@ def test_erro_geral_da_integral_nao_aponta_campo():
 
 
 def test_erro_de_expressao_indefinida_indica_campo():
-    with pytest.raises(
-        ValueError, match="Expressão matemática inválida"
-    ) as erro:
+    with pytest.raises(ValueError, match="Expressão matemática inválida") as erro:
         processar_integral_indefinida("x^^2")
 
     assert erro.value.campo_entrada == "expressao"

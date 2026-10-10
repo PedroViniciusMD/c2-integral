@@ -43,18 +43,14 @@ def faixa_definida(resultado):
 
 
 def _extremos_definidos(resultado):
-    return sorted(
-        (float(resultado.limite_inferior), float(resultado.limite_superior))
-    )
+    return sorted((float(resultado.limite_inferior), float(resultado.limite_superior)))
 
 
 def _amostrar(funcao, amostras_x):
     with np.errstate(all="ignore"):
         valores = np.asarray(funcao(amostras_x), dtype=complex)
         valores = np.broadcast_to(valores, amostras_x.shape)
-    return np.where(
-        np.isreal(valores) & np.isfinite(valores), valores.real, np.nan
-    )
+    return np.where(np.isreal(valores) & np.isfinite(valores), valores.real, np.nan)
 
 
 def _intervalos_continuos(expressao, esquerda, direita):
@@ -131,14 +127,14 @@ def _trechos_numericos(funcao, pontos, sondar_polos=False):
                 inicio = None
         elif inicio is None:
             inicio = indice
-        elif (
-            not np.isfinite(valores_meios[indice - 1])
-            or (
-                sondar_polos
-                and _polo_suspeito(
-                    funcao, pontos[indice - 1], pontos[indice],
-                    valores[indice - 1], valor,
-                )
+        elif not np.isfinite(valores_meios[indice - 1]) or (
+            sondar_polos
+            and _polo_suspeito(
+                funcao,
+                pontos[indice - 1],
+                pontos[indice],
+                valores[indice - 1],
+                valor,
             )
         ):
             trechos.append((pontos[inicio:indice], valores[inicio:indice]))
@@ -166,27 +162,25 @@ def preparar_dados_grafico(resultado, faixa=None):
         if limites[0] < limites[1]:
             malhas.append(np.linspace(*limites, 401))
     for intervalo in intervalos:
-        malhas.append(np.linspace(
-            float(intervalo.start), float(intervalo.end), 401
-        ))
+        malhas.append(np.linspace(float(intervalo.start), float(intervalo.end), 401))
     malha = np.unique(np.concatenate(malhas))
-    funcao = sp.lambdify(
-        sp.Symbol("x"), resultado.expressao, modules="numpy"
-    )
+    funcao = sp.lambdify(sp.Symbol("x"), resultado.expressao, modules="numpy")
     trechos = []
     for intervalo in intervalos:
         inicio, fim = float(intervalo.start), float(intervalo.end)
-        dentro = (
-            (malha > inicio if intervalo.left_open else malha >= inicio)
-            & (malha < fim if intervalo.right_open else malha <= fim)
+        dentro = (malha > inicio if intervalo.left_open else malha >= inicio) & (
+            malha < fim if intervalo.right_open else malha <= fim
         )
-        trechos.extend(_trechos_numericos(
-            funcao, malha[dentro], sondar_polos=not analise_completa
-        ))
+        trechos.extend(
+            _trechos_numericos(funcao, malha[dentro], sondar_polos=not analise_completa)
+        )
     if not any(len(pontos) for pontos, _valores in trechos):
         raise ValueError("Não há valores reais finitos nessa faixa.")
     return DadosGrafico(
-        esquerda, direita, tuple(trechos), limites,
+        esquerda,
+        direita,
+        tuple(trechos),
+        limites,
         resultado.limite_inferior is not None
         and resultado.limite_inferior > resultado.limite_superior,
     )
@@ -207,9 +201,7 @@ def montar_figura(dados):
             if limite_esquerdo < limite_direito:
                 partes_integracao = []
                 for pontos, valores in trechos:
-                    dentro = (pontos >= limite_esquerdo) & (
-                        pontos <= limite_direito
-                    )
+                    dentro = (pontos >= limite_esquerdo) & (pontos <= limite_direito)
                     x_integracao = pontos[dentro]
                     y_integracao = valores[dentro]
                     if len(x_integracao) < 2:
@@ -221,9 +213,13 @@ def montar_figura(dados):
                     ):
                         if mascara.any():
                             eixo.fill_between(
-                                x_integracao, y_integracao, 0,
-                                where=mascara, interpolate=True,
-                                color=cor, alpha=0.35,
+                                x_integracao,
+                                y_integracao,
+                                0,
+                                where=mascara,
+                                interpolate=True,
+                                color=cor,
+                                alpha=0.35,
                             )
                 if (
                     len(partes_integracao) != 1
@@ -231,15 +227,16 @@ def montar_figura(dados):
                     or partes_integracao[0][-1] < limite_direito
                 ):
                     eixo.text(
-                        0.02, 0.02,
+                        0.02,
+                        0.02,
                         "Sombreado aproximado: trechos finitos",
-                        transform=eixo.transAxes, fontsize=8,
-                        color="dimgray", va="bottom",
+                        transform=eixo.transAxes,
+                        fontsize=8,
+                        color="dimgray",
+                        va="bottom",
                     )
             if dados.orientacao_invertida:
-                eixo.set_title(
-                    "Integração: direita para a esquerda", fontsize=10
-                )
+                eixo.set_title("Integração: direita para a esquerda", fontsize=10)
         eixo.set_xlabel("x")
         eixo.set_ylabel("f(x)")
         eixo.grid(True)

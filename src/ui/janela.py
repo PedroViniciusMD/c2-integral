@@ -1,20 +1,20 @@
 """Janela principal da calculadora de integrais."""
 
+import tkinter as tk
 from collections import deque
 from queue import Empty, Queue
 from threading import Condition, Thread
-import tkinter as tk
 
 import sympy as sp
 
-from src.ui.interface import (
-    processar_integral_definida,
-    processar_integral_indefinida,
-)
 from src.ui.grafico import (
     montar_figura,
     preparar_dados_grafico,
     validar_faixa,
+)
+from src.ui.interface import (
+    processar_integral_definida,
+    processar_integral_indefinida,
 )
 
 
@@ -31,8 +31,7 @@ class _Despachante:
 
     def _descartar_pendentes(self):
         self._tarefas = deque(
-            tarefa for tarefa in self._tarefas
-            if tarefa[1] == self._versoes[tarefa[0]]
+            tarefa for tarefa in self._tarefas if tarefa[1] == self._versoes[tarefa[0]]
         )
 
     def invalidar(self, *tipos):
@@ -56,16 +55,11 @@ class _Despachante:
 
     def atual(self, tipo, identificador):
         with self._condicao:
-            return (
-                not self._encerrado
-                and identificador == self._versoes[tipo]
-            )
+            return not self._encerrado and identificador == self._versoes[tipo]
 
     def tem_trabalho(self):
         with self._condicao:
-            return bool(
-                self._tarefas or self._ativos or not self.respostas.empty()
-            )
+            return bool(self._tarefas or self._ativos or not self.respostas.empty())
 
     def fechar(self):
         with self._condicao:
@@ -80,9 +74,7 @@ class _Despachante:
                     self._condicao.wait()
                 if self._encerrado:
                     return
-                tipo, identificador, operacao, argumentos = (
-                    self._tarefas.popleft()
-                )
+                tipo, identificador, operacao, argumentos = self._tarefas.popleft()
                 if identificador != self._versoes[tipo]:
                     continue
                 self._ativos += 1
@@ -208,18 +200,13 @@ def criar_janela(raiz):
     campo_expressao = tk.Frame(conteudo)
     campo_expressao.grid(row=1, column=0, sticky="ew", pady=(12, 0))
     campo_expressao.columnconfigure(0, weight=1)
-    tk.Label(campo_expressao, text="Expressão").grid(
-        row=0, column=0, sticky="w"
-    )
+    tk.Label(campo_expressao, text="Expressão").grid(row=0, column=0, sticky="w")
     tk.Entry(
-        campo_expressao, name="entrada_expressao",
+        campo_expressao,
+        name="entrada_expressao",
         textvariable=expressao_texto,
-    ).grid(
-        row=1, column=0, sticky="ew"
-    )
-    erro_expressao = tk.Label(
-        campo_expressao, name="erro_expressao", text="", fg="red"
-    )
+    ).grid(row=1, column=0, sticky="ew")
+    erro_expressao = tk.Label(campo_expressao, name="erro_expressao", text="", fg="red")
     erro_expressao.grid(row=2, column=0, sticky="w")
 
     campos_limites = tk.Frame(conteudo)
@@ -230,33 +217,21 @@ def criar_janela(raiz):
     campo_inferior = tk.Frame(campos_limites)
     campo_inferior.grid(row=0, column=0, sticky="ew", padx=(0, 8))
     campo_inferior.columnconfigure(0, weight=1)
-    tk.Label(campo_inferior, text="Limite inferior").grid(
-        row=0, column=0, sticky="w"
-    )
-    tk.Entry(
-        campo_inferior, name="entrada_inferior", textvariable=inferior_texto
-    ).grid(
+    tk.Label(campo_inferior, text="Limite inferior").grid(row=0, column=0, sticky="w")
+    tk.Entry(campo_inferior, name="entrada_inferior", textvariable=inferior_texto).grid(
         row=1, column=0, sticky="ew"
     )
-    erro_inferior = tk.Label(
-        campo_inferior, name="erro_inferior", text="", fg="red"
-    )
+    erro_inferior = tk.Label(campo_inferior, name="erro_inferior", text="", fg="red")
     erro_inferior.grid(row=2, column=0, sticky="w")
 
     campo_superior = tk.Frame(campos_limites)
     campo_superior.grid(row=0, column=1, sticky="ew")
     campo_superior.columnconfigure(0, weight=1)
-    tk.Label(campo_superior, text="Limite superior").grid(
-        row=0, column=0, sticky="w"
-    )
-    tk.Entry(
-        campo_superior, name="entrada_superior", textvariable=superior_texto
-    ).grid(
+    tk.Label(campo_superior, text="Limite superior").grid(row=0, column=0, sticky="w")
+    tk.Entry(campo_superior, name="entrada_superior", textvariable=superior_texto).grid(
         row=1, column=0, sticky="ew"
     )
-    erro_superior = tk.Label(
-        campo_superior, name="erro_superior", text="", fg="red"
-    )
+    erro_superior = tk.Label(campo_superior, name="erro_superior", text="", fg="red")
     erro_superior.grid(row=2, column=0, sticky="w")
 
     def atualizar_campos_limites():
@@ -276,9 +251,7 @@ def criar_janela(raiz):
     saida.grid(row=4, column=0, sticky="ew", pady=(16, 0))
     saida.columnconfigure(0, weight=1)
     tk.Label(saida, text="Mensagens").grid(row=0, column=0, sticky="w")
-    mensagem_geral = tk.Label(
-        saida, name="mensagem_geral", text="", fg="red"
-    )
+    mensagem_geral = tk.Label(saida, name="mensagem_geral", text="", fg="red")
     mensagem_geral.grid(row=1, column=0, sticky="w")
     tk.Label(saida, text="Resultado").grid(row=2, column=0, sticky="w")
     area_resultado = tk.Frame(saida)
@@ -312,17 +285,19 @@ def criar_janela(raiz):
     campos_faixa.grid(row=1, column=0, sticky="ew")
     tk.Label(campos_faixa, text="Faixa de x").grid(row=0, column=0, sticky="w")
     tk.Entry(
-        campos_faixa, name="faixa_esquerda", width=12,
+        campos_faixa,
+        name="faixa_esquerda",
+        width=12,
         textvariable=faixa_esquerda_texto,
     ).grid(row=0, column=1, padx=(8, 4))
     tk.Label(campos_faixa, text="até").grid(row=0, column=2)
     tk.Entry(
-        campos_faixa, name="faixa_direita", width=12,
+        campos_faixa,
+        name="faixa_direita",
+        width=12,
         textvariable=faixa_direita_texto,
     ).grid(row=0, column=3, padx=(4, 8))
-    erro_faixa = tk.Label(
-        grafico, name="erro_faixa", text="", fg="red"
-    )
+    erro_faixa = tk.Label(grafico, name="erro_faixa", text="", fg="red")
     erro_faixa.grid(row=2, column=0, sticky="w")
     area_grafico = tk.Frame(grafico)
     area_grafico.grid(row=3, column=0, sticky="nsew")
@@ -380,17 +355,19 @@ def criar_janela(raiz):
         if resultado_atual is None:
             return
         entradas = (
-            resultado_atual, tipo_integral.get(),
-            faixa_esquerda_texto.get(), faixa_direita_texto.get(),
+            resultado_atual,
+            tipo_integral.get(),
+            faixa_esquerda_texto.get(),
+            faixa_direita_texto.get(),
         )
         despachante.enviar("grafico", _preparar_grafico_tarefa, entradas)
         grafico_pendente = True
         atualizar_estado()
         agendar_respostas()
 
-    tk.Button(
-        campos_faixa, text="Atualizar gráfico", command=atualizar_grafico
-    ).grid(row=0, column=4)
+    tk.Button(campos_faixa, text="Atualizar gráfico", command=atualizar_grafico).grid(
+        row=0, column=4
+    )
 
     def atualizar_resultado_textual(texto):
         resultado_textual.config(state="normal")
@@ -417,16 +394,12 @@ def criar_janela(raiz):
             try:
                 visualizacao.destroy()
             finally:
-                figura_resultado = getattr(
-                    visualizacao, "_figura_resultado", None
-                )
+                figura_resultado = getattr(visualizacao, "_figura_resultado", None)
                 if figura_resultado is not None:
                     figura_resultado.clear()
                 visualizacao = None
         atualizar_resultado_textual("")
-        for rotulo in (
-            erro_expressao, erro_inferior, erro_superior, mensagem_geral
-        ):
+        for rotulo in (erro_expressao, erro_inferior, erro_superior, mensagem_geral):
             rotulo.config(text="")
         botao_copiar.config(state="disabled")
 
@@ -434,8 +407,10 @@ def criar_janela(raiz):
         nonlocal calculo_pendente
         limpar_saida()
         entradas = (
-            tipo_integral.get(), expressao_texto.get(),
-            inferior_texto.get(), superior_texto.get(),
+            tipo_integral.get(),
+            expressao_texto.get(),
+            inferior_texto.get(),
+            superior_texto.get(),
         )
         despachante.enviar(
             "calculo", _calcular_tarefa, entradas, invalidar=("grafico",)
@@ -453,9 +428,7 @@ def criar_janela(raiz):
             return
         while True:
             try:
-                tipo, identificador, resposta, erro = (
-                    despachante.respostas.get_nowait()
-                )
+                tipo, identificador, resposta, erro = despachante.respostas.get_nowait()
             except Empty:
                 break
             if not despachante.atual(tipo, identificador):
@@ -471,8 +444,7 @@ def criar_janela(raiz):
                     }
                     rotulo = rotulos.get(campo, mensagem_geral)
                     rotulo.config(
-                        text=mensagem
-                        or "Não foi possível calcular a integral."
+                        text=mensagem or "Não foi possível calcular a integral."
                     )
                 else:
                     resultado_atual, texto_copia, formula = resposta
@@ -492,8 +464,7 @@ def criar_janela(raiz):
                     mensagem, _campo = erro
                     texto = "Não foi possível mostrar o gráfico"
                     erro_faixa.config(
-                        text=f"{texto}: {mensagem}" if mensagem
-                        else f"{texto}."
+                        text=f"{texto}: {mensagem}" if mensagem else f"{texto}."
                     )
                 else:
                     figura = None
@@ -505,9 +476,7 @@ def criar_janela(raiz):
                     except Exception:
                         if figura is not None:
                             figura.clear()
-                        erro_faixa.config(
-                            text="Não foi possível mostrar o gráfico."
-                        )
+                        erro_faixa.config(text="Não foi possível mostrar o gráfico.")
             atualizar_estado()
         if despachante.tem_trabalho():
             agendar_respostas()
@@ -556,9 +525,7 @@ def criar_janela(raiz):
     tk.Button(acoes, text="Calcular", command=calcular).grid(
         row=0, column=0, sticky="w"
     )
-    botao_copiar = tk.Button(
-        acoes, text="Copiar", command=copiar, state="disabled"
-    )
+    botao_copiar = tk.Button(acoes, text="Copiar", command=copiar, state="disabled")
     botao_copiar.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
     expressao_texto.trace_add("write", limpar_saida)

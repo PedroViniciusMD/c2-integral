@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 import sympy as sp
 
@@ -24,8 +23,8 @@ class ResultadoIntegral:
 
     expressao: sp.Basic
     resultado: sp.Basic
-    limite_inferior: Optional[sp.Basic] = None
-    limite_superior: Optional[sp.Basic] = None
+    limite_inferior: sp.Basic | None = None
+    limite_superior: sp.Basic | None = None
 
     def __post_init__(self):
         if (self.limite_inferior is None) != (self.limite_superior is None):
@@ -44,9 +43,7 @@ def processar_integral_definida(
     expressao_texto, limite_inferior_texto, limite_superior_texto
 ):
     """Calcula e devolve a integral definida com operandos validados."""
-    expressao = _executar_com_campo(
-        parse_expressao, expressao_texto, "expressao"
-    )
+    expressao = _executar_com_campo(parse_expressao, expressao_texto, "expressao")
     limite_inferior = _executar_com_campo(
         parse_limite, limite_inferior_texto, "limite_inferior"
     )
@@ -61,9 +58,7 @@ def processar_integral_definida(
     validar_dominio_real(expressao, limite_inferior, limite_superior)
 
     resultado = integrar_definida(expressao, limite_inferior, limite_superior)
-    return ResultadoIntegral(
-        expressao, resultado, limite_inferior, limite_superior
-    )
+    return ResultadoIntegral(expressao, resultado, limite_inferior, limite_superior)
 
 
 def calcular_integral_definida(
@@ -77,9 +72,7 @@ def calcular_integral_definida(
 
 def processar_integral_indefinida(expressao_texto):
     """Calcula e devolve a integral indefinida com a expressão validada."""
-    expressao = _executar_com_campo(
-        parse_expressao, expressao_texto, "expressao"
-    )
+    expressao = _executar_com_campo(parse_expressao, expressao_texto, "expressao")
     _executar_com_campo(validar_expressao, expressao, "expressao")
 
     resultado = integrar_indefinida(expressao)
