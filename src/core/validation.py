@@ -8,36 +8,29 @@ def validar_variaveis(expressao):
     x = sp.Symbol("x")
 
     if not variaveis.issubset({x}):
-        raise ValueError(
-            "A expressão deve conter apenas a variável x.")
+        raise ValueError("A expressão deve conter apenas a variável x.")
+
 
 def validar_expressao(expressao):
     if not isinstance(expressao, sp.Basic):
-        raise TypeError(
-            "A expressão deve ser uma expressão matemática válida.")
+        raise TypeError("A expressão deve ser uma expressão matemática válida.")
 
     validar_variaveis(expressao)
-    
+
+
 def validar_limite(limite):
     if not isinstance(limite, sp.Basic):
-        raise TypeError(
-            "O limite deve ser um valor matemático válido."
-        )
+        raise TypeError("O limite deve ser um valor matemático válido.")
 
     if limite.free_symbols:
-        raise ValueError(
-            "O limite não pode conter variáveis."
-        )
+        raise ValueError("O limite não pode conter variáveis.")
 
     if limite.is_finite is not True:
-        raise ValueError(
-            "O limite deve ser um número finito."
-        )
+        raise ValueError("O limite deve ser um número finito.")
 
     if limite.is_real is not True:
-        raise ValueError(
-            "O limite deve ser um número real."
-        )
+        raise ValueError("O limite deve ser um número real.")
+
 
 def validar_limites(limite_inferior, limite_superior):
     validar_limite(limite_inferior)
@@ -64,9 +57,7 @@ def validar_dominio_real(expressao, limite_inferior, limite_superior):
     intervalo = sp.Interval(inferior, superior)
     singularidades = singularities(expressao, x)
     variavel_real = sp.Symbol("x", real=True)
-    parte_imaginaria = sp.simplify(
-        sp.im(expressao.xreplace({x: variavel_real}))
-    )
+    parte_imaginaria = sp.simplify(sp.im(expressao.xreplace({x: variavel_real})))
     try:
         pontos_reais = sp.solveset(parte_imaginaria, variavel_real, intervalo)
     except NotImplementedError:

@@ -11,9 +11,7 @@ import sympy as sp
 
 
 @pytest.mark.parametrize("modulo", ["main", "src.ui.janela"])
-def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(
-    modulo, tmp_path
-):
+def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(modulo, tmp_path):
     ambiente = os.environ.copy()
     ambiente.pop("DISPLAY", None)
     ambiente["MPLCONFIGDIR"] = str(tmp_path / "matplotlib")
@@ -29,9 +27,7 @@ def test_importar_modulo_nao_abre_janela_nem_executa_exemplos(
 
     assert processo.returncode == 0
     assert processo.stdout == ""
-    aviso_fontes = (
-        "Matplotlib is building the font cache; this may take a moment.\n"
-    )
+    aviso_fontes = "Matplotlib is building the font cache; this may take a moment.\n"
     assert processo.stderr.replace(aviso_fontes, "") == ""
 
 
@@ -50,9 +46,7 @@ def test_main_preserva_calculo_python_indefinido():
         ("definida", "8/3", r"$\frac{8}{3}$"),
     ],
 )
-def test_resultado_tem_mathtext_e_copia_independentes(
-    modo, texto_copia, formula
-):
+def test_resultado_tem_mathtext_e_copia_independentes(modo, texto_copia, formula):
     from matplotlib.mathtext import MathTextParser
 
     from src.ui.interface import (
@@ -128,8 +122,7 @@ class RaizFalsa(WidgetFalso):
 
     def after_cancel(self, identificador):
         self.agendados = [
-            agendado for agendado in self.agendados
-            if agendado[0] is not identificador
+            agendado for agendado in self.agendados if agendado[0] is not identificador
         ]
 
     def executar_agendado(self):
@@ -238,8 +231,7 @@ class DespachanteFalso:
         for tipo in tipos:
             self.versoes[tipo] += 1
         self.tarefas = [
-            tarefa for tarefa in self.tarefas
-            if tarefa[1] == self.versoes[tarefa[0]]
+            tarefa for tarefa in self.tarefas if tarefa[1] == self.versoes[tarefa[0]]
         ]
 
     def enviar(self, tipo, operacao, argumentos, invalidar=()):
@@ -288,22 +280,18 @@ def descendentes(widget):
 
 
 def visivel(widget):
-    return widget.visivel and (
-        widget.parent is None or visivel(widget.parent)
-    )
+    return widget.visivel and (widget.parent is None or visivel(widget.parent))
 
 
 def encontrar_texto(raiz, texto):
     return next(
-        widget for widget in descendentes(raiz)
-        if widget.opcoes.get("text") == texto
+        widget for widget in descendentes(raiz) if widget.opcoes.get("text") == texto
     )
 
 
 def encontrar_nome(raiz, nome):
     return next(
-        widget for widget in descendentes(raiz)
-        if widget.opcoes.get("name") == nome
+        widget for widget in descendentes(raiz) if widget.opcoes.get("name") == nome
     )
 
 
@@ -326,9 +314,9 @@ def entrada_do_campo(raiz, titulo):
 
 def botao(raiz, texto):
     return next(
-        widget for widget in descendentes(raiz)
-        if isinstance(widget, BotaoFalso)
-        and widget.opcoes.get("text") == texto
+        widget
+        for widget in descendentes(raiz)
+        if isinstance(widget, BotaoFalso) and widget.opcoes.get("text") == texto
     )
 
 
@@ -404,9 +392,7 @@ def test_janela_inicia_indefinida_com_expressao_e_sem_limites(janela_sem_tela):
         for widget in widgets
         if "text" in widget.opcoes
     }
-    botoes = [
-        widget for widget in widgets if "value" in widget.opcoes
-    ]
+    botoes = [widget for widget in widgets if "value" in widget.opcoes]
 
     assert visivel(rotulos["Expressão"])
     assert not visivel(rotulos["Limite inferior"])
@@ -414,9 +400,12 @@ def test_janela_inicia_indefinida_com_expressao_e_sem_limites(janela_sem_tela):
     assert visivel(rotulos["Mensagens"])
     assert visivel(rotulos["Resultado"])
     assert visivel(rotulos["Gráfico"])
-    assert next(
-        botao for botao in botoes if botao.opcoes["text"] == "Indefinida"
-    ).opcoes["variable"].get() == "indefinida"
+    assert (
+        next(botao for botao in botoes if botao.opcoes["text"] == "Indefinida")
+        .opcoes["variable"]
+        .get()
+        == "indefinida"
+    )
 
 
 def test_alternar_tipo_preserva_expressao_e_limites_digitados(janela_sem_tela):
@@ -427,9 +416,7 @@ def test_alternar_tipo_preserva_expressao_e_limites_digitados(janela_sem_tela):
         if "text" in widget.opcoes
     }
     botoes = {
-        widget.opcoes["text"]: widget
-        for widget in widgets
-        if "value" in widget.opcoes
+        widget.opcoes["text"]: widget for widget in widgets if "value" in widget.opcoes
     }
 
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
@@ -479,9 +466,7 @@ def test_calcular_indefinida_mostra_resultado_e_permite_copiar(
     botao(janela_sem_tela, "Copiar").invoke()
 
     assert formulas == [r"$\frac{x^{3}}{3} + C$"]
-    assert resultado_textual(janela_sem_tela).get("1.0", "end-1c") == (
-        "x**3/3 + C"
-    )
+    assert resultado_textual(janela_sem_tela).get("1.0", "end-1c") == ("x**3/3 + C")
     assert visivel(resultado_textual(janela_sem_tela))
     assert resultado_textual(janela_sem_tela).opcoes["state"] == "disabled"
     assert janela_sem_tela.clipboard_get() == "x**3/3 + C"
@@ -536,9 +521,7 @@ def test_resultado_extenso_permanece_completo_apos_renderizacao(
     from src.ui.interface import processar_integral_indefinida
 
     expressao = "+".join(f"x^{potencia}" for potencia in range(2, 20))
-    esperado = janela.texto_para_copia(
-        processar_integral_indefinida(expressao)
-    )
+    esperado = janela.texto_para_copia(processar_integral_indefinida(expressao))
     formulas = []
     monkeypatch.setattr(
         janela,
@@ -581,26 +564,16 @@ def test_erro_aparece_no_local_adequado_sem_apagar_entradas(
         encontrar_texto(janela_sem_tela, "Definida").invoke()
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, expressao)
     if modo == "definida":
-        entrada_do_campo(janela_sem_tela, "Limite inferior").insert(
-            0, inferior
-        )
-        entrada_do_campo(janela_sem_tela, "Limite superior").insert(
-            0, superior
-        )
+        entrada_do_campo(janela_sem_tela, "Limite inferior").insert(0, inferior)
+        entrada_do_campo(janela_sem_tela, "Limite superior").insert(0, superior)
 
     botao(janela_sem_tela, "Calcular").invoke()
 
     assert mensagem in erro_do_campo(janela_sem_tela, campo).opcoes["text"]
     assert entrada_do_campo(janela_sem_tela, "Expressão").get() == expressao
     if modo == "definida":
-        assert (
-            entrada_do_campo(janela_sem_tela, "Limite inferior").get()
-            == inferior
-        )
-        assert (
-            entrada_do_campo(janela_sem_tela, "Limite superior").get()
-            == superior
-        )
+        assert entrada_do_campo(janela_sem_tela, "Limite inferior").get() == inferior
+        assert entrada_do_campo(janela_sem_tela, "Limite superior").get() == superior
     assert botao(janela_sem_tela, "Copiar").opcoes["state"] == "disabled"
 
 
@@ -624,9 +597,7 @@ def test_editar_entrada_ou_mudar_modo_limpa_resultado_anterior(
     assert botao(janela_sem_tela, "Copiar").opcoes["state"] == "disabled"
 
 
-def test_editar_limite_limpa_resultado_definido(
-    janela_sem_tela, renderizacao_falha
-):
+def test_editar_limite_limpa_resultado_definido(janela_sem_tela, renderizacao_falha):
     encontrar_texto(janela_sem_tela, "Definida").invoke()
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
     entrada_do_campo(janela_sem_tela, "Limite inferior").insert(0, "0")
@@ -659,7 +630,8 @@ def test_faixa_indefinida_pode_ser_atualizada_sem_recalcular(
     graficos = []
     monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "_incorporar_grafico",
+        janela,
+        "_incorporar_grafico",
         lambda _area, figura: graficos.append(figura) or WidgetFalso(),
     )
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
@@ -675,17 +647,11 @@ def test_faixa_indefinida_pode_ser_atualizada_sem_recalcular(
     assert len(graficos) == 2
 
 
-def test_faixa_invalida_preserva_resultado_e_copia(
-    janela_sem_tela, monkeypatch
-):
+def test_faixa_invalida_preserva_resultado_e_copia(janela_sem_tela, monkeypatch):
     from src.ui import janela
 
-    monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
-    )
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
     botao(janela_sem_tela, "Calcular").invoke()
     encontrar_nome(janela_sem_tela, "faixa_esquerda").insert(0, "3")
@@ -698,9 +664,7 @@ def test_faixa_invalida_preserva_resultado_e_copia(
     assert janela_sem_tela.clipboard_get() == "x**3/3 + C"
 
 
-def test_atualizar_faixa_nao_repete_calculo_da_integral(
-    janela_sem_tela, monkeypatch
-):
+def test_atualizar_faixa_nao_repete_calculo_da_integral(janela_sem_tela, monkeypatch):
     from src.ui import janela
 
     original = janela.processar_integral_indefinida
@@ -729,7 +693,8 @@ def test_grafico_definido_usa_limites_e_oculta_faixa_editavel(
     figuras = []
     monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "_incorporar_grafico",
+        janela,
+        "_incorporar_grafico",
         lambda _area, figura: figuras.append(figura) or WidgetFalso(),
     )
     encontrar_texto(janela_sem_tela, "Definida").invoke()
@@ -747,18 +712,21 @@ def test_falha_grafica_preserva_resultado_mathtext_e_copia(
     janela_sem_tela, monkeypatch
 ):
     from matplotlib.figure import Figure
+
     from src.ui import janela
 
     formulas = []
     figura = Figure()
     figura.add_subplot(111)
     monkeypatch.setattr(
-        janela, "_renderizar_resultado",
+        janela,
+        "_renderizar_resultado",
         lambda _area, formula: formulas.append(formula) or WidgetFalso(),
     )
     monkeypatch.setattr(janela, "montar_figura", lambda *_: figura)
     monkeypatch.setattr(
-        janela, "_incorporar_grafico",
+        janela,
+        "_incorporar_grafico",
         lambda *_: (_ for _ in ()).throw(RuntimeError("canvas falhou")),
     )
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
@@ -824,10 +792,7 @@ def test_recalculos_consecutivos_descartam_canvases_e_figuras_anteriores(
         assert figura_atual.axes
 
     entrada.insert(0, "x")
-    assert all(
-        canvas.destruido and not figura.axes
-        for figura, canvas in graficos
-    )
+    assert all(canvas.destruido and not figura.axes for figura, canvas in graficos)
 
 
 def test_falha_de_amostragem_nao_apaga_resultado(janela_sem_tela, monkeypatch):
@@ -835,7 +800,8 @@ def test_falha_de_amostragem_nao_apaga_resultado(janela_sem_tela, monkeypatch):
 
     monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "preparar_dados_grafico",
+        janela,
+        "preparar_dados_grafico",
         lambda *_: (_ for _ in ()).throw(RuntimeError("amostragem falhou")),
     )
     entrada_do_campo(janela_sem_tela, "Expressão").insert(0, "x^2")
@@ -871,6 +837,7 @@ def test_faixa_sem_dominio_real_preserva_resultado_e_copia(
 def test_falha_ao_desenhar_canvas_descarta_widget_e_figura(monkeypatch):
     from matplotlib.backends import backend_tkagg
     from matplotlib.figure import Figure
+
     from src.ui.janela import _incorporar_grafico
 
     widgets = []
@@ -903,6 +870,7 @@ def test_falha_ao_desenhar_canvas_descarta_widget_e_figura(monkeypatch):
 def test_falha_ao_criar_canvas_descarta_filho_parcial(monkeypatch):
     from matplotlib.backends import backend_tkagg
     from matplotlib.figure import Figure
+
     from src.ui import janela
 
     filhos = []
@@ -927,6 +895,7 @@ def test_falha_ao_criar_canvas_descarta_filho_parcial(monkeypatch):
 def test_falha_ao_desenhar_mathtext_descarta_figura_e_widget(monkeypatch):
     from matplotlib import figure as modulo_figura
     from matplotlib.backends import backend_tkagg
+
     from src.ui import janela
 
     figuras = []
@@ -962,6 +931,7 @@ def test_falha_ao_desenhar_mathtext_descarta_figura_e_widget(monkeypatch):
 
 def test_falha_ao_criar_recipiente_descarta_figuras(monkeypatch):
     from matplotlib import figure as modulo_figura
+
     from src.ui import janela
 
     figuras = []
@@ -999,12 +969,8 @@ def test_calculo_pendente_mostra_progresso_e_entrega_resultado(
 ):
     from src.ui import janela
 
-    monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
-    )
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
     entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
 
     botao(janela_controlada, "Calcular").invoke()
@@ -1024,9 +990,7 @@ def test_calculo_pendente_mostra_progresso_e_entrega_resultado(
     assert janela_controlada.clipboard_get() == "x**3/3 + C"
 
 
-def test_consulta_da_fila_ativa_somente_enquanto_ha_trabalho(
-    janela_controlada
-):
+def test_consulta_da_fila_ativa_somente_enquanto_ha_trabalho(janela_controlada):
     assert janela_controlada.agendados == []
     entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
     assert janela_controlada.agendados == []
@@ -1094,9 +1058,7 @@ def test_edicao_descarta_resposta_de_calculo_em_andamento(janela_controlada):
     assert botao(janela_controlada, "Copiar").opcoes["state"] == "disabled"
 
 
-def test_erro_assincrono_preserva_entrada_e_remove_progresso(
-    janela_controlada
-):
+def test_erro_assincrono_preserva_entrada_e_remove_progresso(janela_controlada):
     entrada = entrada_do_campo(janela_controlada, "Expressão")
     entrada.insert(0, "x +")
     botao(janela_controlada, "Calcular").invoke()
@@ -1129,12 +1091,8 @@ def test_requisicao_mais_recente_vence_conclusao_fora_de_ordem(
 ):
     from src.ui import janela
 
-    monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
-    )
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
     entrada = entrada_do_campo(janela_controlada, "Expressão")
     entrada.insert(0, "x^2")
     botao(janela_controlada, "Calcular").invoke()
@@ -1154,17 +1112,14 @@ def test_requisicao_mais_recente_vence_conclusao_fora_de_ordem(
     assert estado_calculo(janela_controlada) == ""
 
 
-def test_faixa_descarta_grafico_antigo_sem_recalcular(
-    janela_controlada, monkeypatch
-):
+def test_faixa_descarta_grafico_antigo_sem_recalcular(janela_controlada, monkeypatch):
     from src.ui import janela
 
     figuras = []
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "_incorporar_grafico",
+        janela,
+        "_incorporar_grafico",
         lambda _area, figura: figuras.append(figura) or WidgetFalso(),
     )
     entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
@@ -1173,9 +1128,7 @@ def test_faixa_descarta_grafico_antigo_sem_recalcular(
     janela_controlada.executar_agendado()
     janela_controlada.despachante.executar_proxima()
     janela_controlada.executar_agendado()
-    resultado_original = resultado_textual(janela_controlada).get(
-        "1.0", "end-1c"
-    )
+    resultado_original = resultado_textual(janela_controlada).get("1.0", "end-1c")
 
     encontrar_nome(janela_controlada, "faixa_esquerda").insert(0, "-2")
     botao(janela_controlada, "Atualizar gráfico").invoke()
@@ -1189,9 +1142,9 @@ def test_faixa_descarta_grafico_antigo_sem_recalcular(
 
     assert len(figuras) == 2
     assert figuras[-1].axes[0].get_xlim() == (-2, 2)
-    assert resultado_textual(janela_controlada).get(
-        "1.0", "end-1c"
-    ) == resultado_original
+    assert (
+        resultado_textual(janela_controlada).get("1.0", "end-1c") == resultado_original
+    )
     assert estado_calculo(janela_controlada) == ""
 
 
@@ -1199,6 +1152,7 @@ def test_fechar_durante_calculo_descarta_saida_e_recursos(
     janela_controlada, monkeypatch
 ):
     from matplotlib.figure import Figure
+
     from src.ui import janela
 
     formulas = []
@@ -1234,8 +1188,9 @@ def test_fechar_durante_calculo_descarta_saida_e_recursos(
     assert janela_controlada.destruido
     assert janela_controlada.agendados == []
     assert janela_controlada.despachante.encerrado
-    assert all(widget.destruido and not figura.axes
-               for widget, figura in formulas + graficos)
+    assert all(
+        widget.destruido and not figura.axes for widget, figura in formulas + graficos
+    )
 
 
 def test_despachante_descarta_trabalhos_pendentes_obsoletos():
@@ -1325,9 +1280,7 @@ def test_worker_real_nao_acessa_tk_e_eventos_continuam(monkeypatch):
 
     monkeypatch.setattr(VariavelFalsa, "get", obter_na_thread_principal)
     monkeypatch.setattr(WidgetFalso, "config", configurar_na_thread_principal)
-    monkeypatch.setattr(
-        janela, "processar_integral_indefinida", calculo_controlado
-    )
+    monkeypatch.setattr(janela, "processar_integral_indefinida", calculo_controlado)
 
     class DespachanteRealRastreado(janela._Despachante):
         instancia = None
@@ -1337,12 +1290,8 @@ def test_worker_real_nao_acessa_tk_e_eventos_continuam(monkeypatch):
             type(self).instancia = self
 
     raiz = montar_janela_falsa(monkeypatch, DespachanteRealRastreado)
-    monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "_incorporar_grafico", lambda *_: WidgetFalso()
-    )
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
+    monkeypatch.setattr(janela, "_incorporar_grafico", lambda *_: WidgetFalso())
     try:
         entrada_do_campo(raiz, "Expressão").insert(0, "x^2")
         botao(raiz, "Calcular").invoke()
@@ -1366,14 +1315,11 @@ def test_falha_grafica_assincrona_preserva_resultado_e_copia(
 ):
     from src.ui import janela
 
+    monkeypatch.setattr(janela, "_renderizar_resultado", lambda *_: WidgetFalso())
     monkeypatch.setattr(
-        janela, "_renderizar_resultado", lambda *_: WidgetFalso()
-    )
-    monkeypatch.setattr(
-        janela, "preparar_dados_grafico",
-        lambda *_: (_ for _ in ()).throw(
-            ValueError("faixa sem domínio real")
-        ),
+        janela,
+        "preparar_dados_grafico",
+        lambda *_: (_ for _ in ()).throw(ValueError("faixa sem domínio real")),
     )
     entrada_do_campo(janela_controlada, "Expressão").insert(0, "x^2")
     botao(janela_controlada, "Calcular").invoke()
@@ -1383,20 +1329,18 @@ def test_falha_grafica_assincrona_preserva_resultado_e_copia(
     janela_controlada.executar_agendado()
     botao(janela_controlada, "Copiar").invoke()
 
-    assert resultado_textual(janela_controlada).get(
-        "1.0", "end-1c"
-    ) == "x**3/3 + C"
+    assert resultado_textual(janela_controlada).get("1.0", "end-1c") == "x**3/3 + C"
     assert janela_controlada.clipboard_get() == "x**3/3 + C"
-    assert "faixa sem domínio real" in encontrar_nome(
-        janela_controlada, "erro_faixa"
-    ).opcoes["text"]
+    assert (
+        "faixa sem domínio real"
+        in encontrar_nome(janela_controlada, "erro_faixa").opcoes["text"]
+    )
     assert estado_calculo(janela_controlada) == ""
 
 
-def test_fechar_descarta_figuras_ainda_visiveis(
-    janela_controlada, monkeypatch
-):
+def test_fechar_descarta_figuras_ainda_visiveis(janela_controlada, monkeypatch):
     from matplotlib.figure import Figure
+
     from src.ui import janela
 
     recursos = []
@@ -1426,6 +1370,5 @@ def test_fechar_descarta_figuras_ainda_visiveis(
 
     janela_controlada.protocolos["WM_DELETE_WINDOW"]()
 
-    assert all(widget.destruido and not figura.axes
-               for widget, figura in recursos)
+    assert all(widget.destruido and not figura.axes for widget, figura in recursos)
     assert janela_controlada.agendados == []

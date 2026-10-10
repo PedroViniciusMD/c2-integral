@@ -2,13 +2,14 @@ import sympy as sp
 from sympy.calculus.util import singularities
 
 
-#Indefinida
+# Indefinida
 def calcular_integral_indefinida(expressao):
     x = sp.Symbol("x")
     resultado = sp.integrate(expressao, x)
     return resultado
 
-#Definida
+
+# Definida
 def calcular_integral_definida(expressao, limite_inferior, limite_superior):
     """Calcula uma integral definida de objetos SymPy em relação a x."""
     x = sp.Symbol("x")
@@ -26,8 +27,11 @@ def calcular_integral_definida(expressao, limite_inferior, limite_superior):
         trecho = sp.integrate(expressao, (x, inicio, fim))
         if trecho.has(sp.Integral):
             raise ValueError("Integral não resolvida pelo cálculo simbólico.")
-        if (trecho.has(sp.nan, sp.zoo, sp.oo, -sp.oo)
-                or trecho.is_finite is False or trecho.is_real is False):
+        if (
+            trecho.has(sp.nan, sp.zoo, sp.oo, -sp.oo)
+            or trecho.is_finite is False
+            or trecho.is_real is False
+        ):
             raise ValueError("A integral é divergente ou tem resultado inválido.")
         resultado += trecho
 

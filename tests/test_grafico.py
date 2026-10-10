@@ -2,17 +2,17 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from src.ui.interface import (
-    ResultadoIntegral,
-    processar_integral_definida,
-    processar_integral_indefinida,
-)
 from src.ui.grafico import (
     criar_figura,
     faixa_definida,
     montar_figura,
     preparar_dados_grafico,
     validar_faixa,
+)
+from src.ui.interface import (
+    ResultadoIntegral,
+    processar_integral_definida,
+    processar_integral_indefinida,
 )
 
 
@@ -23,7 +23,8 @@ def test_preparacao_numerica_nao_cria_figura(monkeypatch):
     resultado = ResultadoIntegral(x**2, x**3 / 3)
     with monkeypatch.context() as alteracoes:
         alteracoes.setattr(
-            grafico, "Figure",
+            grafico,
+            "Figure",
             lambda *_argumentos, **_opcoes: (_ for _ in ()).throw(
                 AssertionError("A preparação criou uma figura")
             ),
@@ -60,18 +61,25 @@ def test_faixa_editada_aceita_constantes_exatas():
     assert direita == sp.Rational(1, 2)
 
 
-@pytest.mark.parametrize("esquerda,direita", [
-    ("2", "1"), ("1", "1"), ("x", "2"), ("oo", "2"),
-    ("1+", "2"),
-])
+@pytest.mark.parametrize(
+    "esquerda,direita",
+    [
+        ("2", "1"),
+        ("1", "1"),
+        ("x", "2"),
+        ("oo", "2"),
+        ("1+", "2"),
+    ],
+)
 def test_faixa_invalida_e_rejeitada(esquerda, direita):
     with pytest.raises(ValueError):
         validar_faixa(esquerda, direita)
 
 
 def test_grafico_de_funcao_constante_tem_amostras_em_toda_faixa():
-    figura = criar_figura(ResultadoIntegral(sp.Integer(3), 3 * sp.Symbol("x")),
-                          validar_faixa("-2", "2"))
+    figura = criar_figura(
+        ResultadoIntegral(sp.Integer(3), 3 * sp.Symbol("x")), validar_faixa("-2", "2")
+    )
     linha = figura.axes[0].lines[0]
 
     assert len(linha.get_xdata()) == len(linha.get_ydata())
@@ -81,8 +89,10 @@ def test_grafico_de_funcao_constante_tem_amostras_em_toda_faixa():
 
 def test_amostras_complexas_nao_sao_convertidas_em_reais():
     x = sp.Symbol("x")
-    figura = criar_figura(ResultadoIntegral(sp.sqrt(x), 2 * x**sp.Rational(3, 2) / 3),
-                          validar_faixa("-1", "1"))
+    figura = criar_figura(
+        ResultadoIntegral(sp.sqrt(x), 2 * x ** sp.Rational(3, 2) / 3),
+        validar_faixa("-1", "1"),
+    )
     linha = figura.axes[0].lines[0]
     valores_x = np.asarray(linha.get_xdata())
     valores_y = np.asarray(linha.get_ydata())
@@ -123,9 +133,7 @@ def test_integral_definida_positiva_sombreia_somente_entre_limites():
 
     figura = criar_figura(resultado)
     regioes = figura.axes[0].collections
-    vertices = np.concatenate(
-        [caminho.vertices for caminho in regioes[0].get_paths()]
-    )
+    vertices = np.concatenate([caminho.vertices for caminho in regioes[0].get_paths()])
 
     assert len(regioes) == 1
     assert np.min(vertices[:, 0]) >= 0
@@ -141,9 +149,7 @@ def test_integral_definida_negativa_sombreia_abaixo_do_eixo():
 
     figura = criar_figura(resultado)
     regioes = figura.axes[0].collections
-    vertices = np.concatenate(
-        [caminho.vertices for caminho in regioes[0].get_paths()]
-    )
+    vertices = np.concatenate([caminho.vertices for caminho in regioes[0].get_paths()])
 
     assert len(regioes) == 1
     assert np.min(vertices[:, 0]) >= 0
@@ -165,16 +171,12 @@ def test_cruzamento_do_eixo_distingue_contribuicoes():
     ]
 
     assert len(regioes) == 2
-    assert not np.array_equal(
-        regioes[0].get_facecolor(), regioes[1].get_facecolor()
+    assert not np.array_equal(regioes[0].get_facecolor(), regioes[1].get_facecolor())
+    assert any(
+        np.min(pontos[:, 1]) >= 0 and np.max(pontos[:, 0]) > 0 for pontos in vertices
     )
     assert any(
-        np.min(pontos[:, 1]) >= 0 and np.max(pontos[:, 0]) > 0
-        for pontos in vertices
-    )
-    assert any(
-        np.max(pontos[:, 1]) <= 0 and np.min(pontos[:, 0]) < 0
-        for pontos in vertices
+        np.max(pontos[:, 1]) <= 0 and np.min(pontos[:, 0]) < 0 for pontos in vertices
     )
     assert all(np.min(pontos[:, 0]) >= -1 for pontos in vertices)
     assert all(np.max(pontos[:, 0]) <= 1 for pontos in vertices)
@@ -227,17 +229,14 @@ def test_amostra_invalida_interrompe_sombreado():
 
     figura = criar_figura(resultado)
     regioes = figura.axes[0].collections
-    caminhos = [
-        caminho for regiao in regioes for caminho in regiao.get_paths()
-    ]
+    caminhos = [caminho for regiao in regioes for caminho in regiao.get_paths()]
 
     assert len(caminhos) == 2
     assert all(np.isfinite(caminho.vertices).all() for caminho in caminhos)
     assert any(np.min(caminho.vertices[:, 0]) < 0 for caminho in caminhos)
     assert any(np.max(caminho.vertices[:, 0]) > 0 for caminho in caminhos)
     assert all(
-        np.max(caminho.vertices[:, 0]) <= 0
-        or np.min(caminho.vertices[:, 0]) >= 0
+        np.max(caminho.vertices[:, 0]) <= 0 or np.min(caminho.vertices[:, 0]) >= 0
         for caminho in caminhos
     )
     figura.clear()
@@ -252,8 +251,10 @@ def test_polo_fora_da_malha_nao_liga_lados_da_curva():
     trechos = [np.asarray(linha.get_xdata()) for linha in figura.axes[0].lines]
 
     assert len(trechos) == 2
-    assert all(np.max(trecho) < float(polo) or np.min(trecho) > float(polo)
-               for trecho in trechos)
+    assert all(
+        np.max(trecho) < float(polo) or np.min(trecho) > float(polo)
+        for trecho in trechos
+    )
     figura.clear()
 
 
@@ -265,9 +266,7 @@ def test_polo_fora_da_malha_nao_liga_lados_da_curva():
         (lambda x: 1 / (x - 1), "0", "2", 1),
     ],
 )
-def test_assintotas_conhecidas_separam_a_curva(
-    expressao, esquerda, direita, polo
-):
+def test_assintotas_conhecidas_separam_a_curva(expressao, esquerda, direita, polo):
     x = sp.Symbol("x")
     resultado = ResultadoIntegral(expressao(x), sp.Integer(0))
 
@@ -322,8 +321,9 @@ def test_singularidade_convergente_na_extremidade_sombreia_trecho_finito():
     figura = criar_figura(resultado)
     eixo = figura.axes[0]
     pontos_curva = np.asarray(eixo.lines[0].get_xdata())
-    caminhos = [caminho for regiao in eixo.collections
-                for caminho in regiao.get_paths()]
+    caminhos = [
+        caminho for regiao in eixo.collections for caminho in regiao.get_paths()
+    ]
 
     assert sp.simplify(resultado.resultado - 2) == 0
     assert np.min(pontos_curva) > 0
@@ -346,9 +346,7 @@ def sem_analise_simbolica(monkeypatch):
 
 
 @pytest.mark.parametrize("polo", [sp.Rational(1, 800), sp.Rational(1, 3)])
-def test_falha_da_analise_simbolica_usa_sondagem_numerica(
-    sem_analise_simbolica, polo
-):
+def test_falha_da_analise_simbolica_usa_sondagem_numerica(sem_analise_simbolica, polo):
     x = sp.Symbol("x")
     resultado = ResultadoIntegral(1 / (x - polo), sp.Integer(0))
 
@@ -384,9 +382,7 @@ def test_falha_simbolica_mantem_polos_amostrados_separados(
     figura.clear()
 
 
-def test_sondagem_conservadora_preserva_crescimento_continuo(
-    sem_analise_simbolica
-):
+def test_sondagem_conservadora_preserva_crescimento_continuo(sem_analise_simbolica):
     x = sp.Symbol("x")
     resultado = ResultadoIntegral(
         (x - sp.Rational(1, 3)) * sp.exp(100 * x), sp.Integer(0)
@@ -398,9 +394,7 @@ def test_sondagem_conservadora_preserva_crescimento_continuo(
     figura.clear()
 
 
-def test_sondagem_nao_corta_transicao_continua_estreita(
-    sem_analise_simbolica
-):
+def test_sondagem_nao_corta_transicao_continua_estreita(sem_analise_simbolica):
     x = sp.Symbol("x")
     centro = sp.Rational(33337, 100000)
     deslocamento = x - centro
@@ -415,9 +409,7 @@ def test_sondagem_nao_corta_transicao_continua_estreita(
     figura.clear()
 
 
-def test_sondagem_numerica_descarta_amostras_complexas(
-    sem_analise_simbolica
-):
+def test_sondagem_numerica_descarta_amostras_complexas(sem_analise_simbolica):
     x = sp.Symbol("x")
     resultado = ResultadoIntegral(sp.sqrt(x), sp.Integer(0))
 
@@ -435,15 +427,18 @@ def test_singularidade_integravel_fora_da_malha_separa_curva_e_sombreado():
     polo = sp.Rational(1, 3)
     expressao = 1 / sp.sqrt(sp.Abs(x - polo))
     resultado = ResultadoIntegral(
-        expressao, 2 * (sp.sqrt(polo) + sp.sqrt(1 - polo)),
-        sp.Integer(0), sp.Integer(1),
+        expressao,
+        2 * (sp.sqrt(polo) + sp.sqrt(1 - polo)),
+        sp.Integer(0),
+        sp.Integer(1),
     )
 
     figura = criar_figura(resultado)
     eixo = figura.axes[0]
     trechos_curva = [np.asarray(linha.get_xdata()) for linha in eixo.lines]
-    caminhos = [caminho for regiao in eixo.collections
-                for caminho in regiao.get_paths()]
+    caminhos = [
+        caminho for regiao in eixo.collections for caminho in regiao.get_paths()
+    ]
 
     assert len(trechos_curva) == 2
     assert len(caminhos) == 2

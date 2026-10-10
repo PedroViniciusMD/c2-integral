@@ -8,7 +8,7 @@ from src.ui.interface import calcular_integral_definida
 
 
 def test_calculo_recebe_objetos_sympy():
-    resultado = integrar(sp.Symbol("x")**2, sp.Integer(0), sp.Integer(2))
+    resultado = integrar(sp.Symbol("x") ** 2, sp.Integer(0), sp.Integer(2))
 
     assert sp.simplify(resultado - sp.Rational(8, 3)) == 0
 
@@ -29,9 +29,7 @@ def test_calculo_recebe_objetos_sympy():
         ("x^2", "2", "2", sp.Integer(0)),
     ],
 )
-def test_calcular_integral_definida_regular(
-    expressao, inferior, superior, esperado
-):
+def test_calcular_integral_definida_regular(expressao, inferior, superior, esperado):
     resultado = calcular_integral_definida(expressao, inferior, superior)
 
     assert isinstance(resultado, sp.Basic)
@@ -53,9 +51,7 @@ def test_calcular_integral_definida_regular(
         ("x", "0", "1/0", "finito"),
     ],
 )
-def test_rejeitar_entrada_invalida(
-    expressao, inferior, superior, mensagem
-):
+def test_rejeitar_entrada_invalida(expressao, inferior, superior, mensagem):
     with pytest.raises((ValueError, TypeError), match=f"(?i){re.escape(mensagem)}"):
         calcular_integral_definida(expressao, inferior, superior)
 
@@ -140,9 +136,7 @@ def test_raiz_em_intervalo_real_continua_exata():
         ("ln(x^2)", "-1", "1", sp.Integer(-4)),
     ],
 )
-def test_singularidade_logaritmica_convergente(
-    expressao, inferior, superior, esperado
-):
+def test_singularidade_logaritmica_convergente(expressao, inferior, superior, esperado):
     resultado = calcular_integral_definida(expressao, inferior, superior)
 
     assert isinstance(resultado, sp.Basic)
